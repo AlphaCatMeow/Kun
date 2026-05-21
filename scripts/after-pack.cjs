@@ -1,7 +1,7 @@
 const { createHash } = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { existsSync } = require('node:fs')
-const { chmod, mkdir, readFile, rename, unlink, writeFile } = require('node:fs/promises')
+const { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } = require('node:fs/promises')
 const { join, dirname } = require('node:path')
 
 const deepseekTuiPkg = require('../node_modules/deepseek-tui/package.json')
@@ -98,6 +98,27 @@ function releaseRepo() {
   return process.env.DEEPSEEK_TUI_GITHUB_REPO || process.env.DEEPSEEK_GITHUB_REPO || 'Hmbown/DeepSeek-TUI'
 }
 
+function runtimeCacheEnabled() {
+  return process.env.DEEPSEEK_GUI_RUNTIME_CACHE !== '0'
+}
+
+function runtimeCacheRoot() {
+  return process.env.DEEPSEEK_GUI_RUNTIME_CACHE_DIR || join(__dirname, '..', '.cache', 'deepseek-runtime')
+}
+
+function sanitizeCachePart(value) {
+  return String(value).replace(/[^A-Za-z0-9._-]+/g, '_')
+}
+
+function cachedRuntimePath(version, repo, assetName, expectedSha) {
+  return join(
+    runtimeCacheRoot(),
+    sanitizeCachePart(repo),
+    sanitizeCachePart(version),
+    `${sanitizeCachePart(assetName)}-${expectedSha.slice(0, 16)}`
+  )
+}
+
 async function sha256File(path) {
   const content = await readFile(path)
   return createHash('sha256').update(content).digest('hex')
@@ -156,6 +177,42 @@ async function bundledBinaryMatches(filePath, markerPath, version, expectedSha) 
   return (await sha256File(filePath)) === expectedSha
 }
 
+async function fileMatchesSha(filePath, expectedSha) {
+  if (!existsSync(filePath)) return false
+  return (await sha256File(filePath)) === expectedSha
+}
+
+async function copyRuntimeBinary(source, destination, platform) {
+  await mkdir(dirname(destination), { recursive: true })
+  await copyFile(source, destination)
+  if (platform !== 'win32') {
+    await chmod(destination, 0o755)
+  }
+}
+
+async function ensureCachedRuntimeBinary(version, assetName, expectedSha, repo, platform) {
+  const cachePath = cachedRuntimePath(version, repo, assetName, expectedSha)
+  if (await fileMatchesSha(cachePath, expectedSha)) {
+    console.log(`[after-pack] Runtime cache hit: ${assetName}`)
+    return cachePath
+  }
+
+  await unlink(cachePath).catch(() => {})
+  console.log(`[after-pack] Runtime cache miss: ${assetName}`)
+  await downloadToFile(artifacts.releaseAssetUrl(assetName, version, repo), cachePath)
+  const actualSha = await sha256File(cachePath)
+  if (actualSha !== expectedSha) {
+    await unlink(cachePath).catch(() => {})
+    throw new Error(
+      `[after-pack] Checksum mismatch for ${assetName}: expected ${expectedSha}, got ${actualSha}`
+    )
+  }
+  if (platform !== 'win32') {
+    await chmod(cachePath, 0o755)
+  }
+  return cachePath
+}
+
 async function replaceBundledBinary(
   destination,
   markerPath,
@@ -165,17 +222,22 @@ async function replaceBundledBinary(
   repo,
   platform
 ) {
-  const url = artifacts.releaseAssetUrl(assetName, version, repo)
-  await downloadToFile(url, destination)
-  const actualSha = await sha256File(destination)
-  if (actualSha !== expectedSha) {
-    await unlink(destination).catch(() => {})
-    throw new Error(
-      `[after-pack] Checksum mismatch for ${assetName}: expected ${expectedSha}, got ${actualSha}`
-    )
-  }
-  if (platform !== 'win32') {
-    await chmod(destination, 0o755)
+  if (runtimeCacheEnabled()) {
+    const cachePath = await ensureCachedRuntimeBinary(version, assetName, expectedSha, repo, platform)
+    await copyRuntimeBinary(cachePath, destination, platform)
+  } else {
+    const url = artifacts.releaseAssetUrl(assetName, version, repo)
+    await downloadToFile(url, destination)
+    const actualSha = await sha256File(destination)
+    if (actualSha !== expectedSha) {
+      await unlink(destination).catch(() => {})
+      throw new Error(
+        `[after-pack] Checksum mismatch for ${assetName}: expected ${expectedSha}, got ${actualSha}`
+      )
+    }
+    if (platform !== 'win32') {
+      await chmod(destination, 0o755)
+    }
   }
   await writeFile(markerPath, `${version}\n`, 'utf8')
 }

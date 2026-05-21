@@ -155,7 +155,7 @@ release_acquire_lock() {
 }
 
 release_clean_dist_artifacts() {
-  rm -rf "${ROOT}/dist/mac" "${ROOT}/dist/mac-arm64" "${ROOT}/dist/win-unpacked" "${ROOT}/dist/linux-unpacked"
+  rm -rf "${ROOT}/dist/mac" "${ROOT}/dist/mac-arm64" "${ROOT}/dist/.mac-build" "${ROOT}/dist/win-unpacked" "${ROOT}/dist/linux-unpacked"
   rm -f "${ROOT}"/dist/DeepSeek-GUI-* "${ROOT}"/dist/DeepSeek\ GUI-* "${ROOT}"/dist/latest*.yml "${ROOT}"/dist/*.blockmap
 }
 

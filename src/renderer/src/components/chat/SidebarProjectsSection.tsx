@@ -15,14 +15,7 @@ import {
 import type { NormalizedThread } from '../../agent/types'
 import { formatRelativeTime } from '../../lib/format-relative-time'
 import { workspaceLabelFromPath } from '../../lib/workspace-label'
-import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../../lib/workspace-path'
-
-function isClawWorkspacePath(path?: string): boolean {
-  const trimmed = path?.trim() ?? ''
-  if (!trimmed) return false
-  const normalized = trimmed.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  return normalized.includes('/.deepseekgui/claw/')
-}
+import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../../lib/workspace-path'
 
 type SidebarProjectsSectionProps = {
   threads: NormalizedThread[]

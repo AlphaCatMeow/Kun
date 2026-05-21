@@ -74,7 +74,7 @@ module.exports = {
   asarUnpack: ['**/node_modules/node-pty/**/*'],
   npmRebuild: false,
   directories: {
-    output: 'dist'
+    output: process.env.DEEPSEEK_GUI_DIST_DIR || 'dist'
   },
   files: ['out/**/*', 'package.json'],
   artifactName: `DeepSeek-GUI-${artifactVersion}-\${os}-\${arch}.\${ext}`,

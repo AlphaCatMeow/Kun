@@ -16,7 +16,7 @@ import {
   shouldAutoTitleThread
 } from '../lib/thread-title'
 import { workspaceLabelFromPath } from '../lib/workspace-label'
-import { isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
+import { isClawWorkspacePath, isInternalTemporaryWorkspace, normalizeWorkspaceRoot } from '../lib/workspace-path'
 import {
   buildClawRuntimePrompt,
   type ClawImChannelV1
@@ -186,6 +186,15 @@ function shouldOpenSettingsForError(error: unknown): boolean {
 function looksLikeActiveTurnError(error: unknown): boolean {
   const raw = error instanceof Error ? error.message : String(error ?? '')
   return raw.toLowerCase().includes('active turn')
+}
+
+function isCodeThread(thread: NormalizedThread): boolean {
+  const workspace = normalizeWorkspaceRoot(thread.workspace)
+  return Boolean(workspace) && !isInternalTemporaryWorkspace(thread.workspace) && !isClawWorkspacePath(thread.workspace)
+}
+
+function latestThread(threads: NormalizedThread[]): NormalizedThread | null {
+  return [...threads].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0] ?? null
 }
 
 function armBusyWatchdog(
@@ -611,6 +620,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
     workspaceLabelFromPath,
     normalizeWorkspaceRoot: (workspaceRoot) => normalizeWorkspaceRoot(workspaceRoot ?? undefined)
   }),
+
+  openCode: async () => {
+    const state = get()
+    const activeThread = state.activeThreadId
+      ? state.threads.find((thread) => thread.id === state.activeThreadId) ?? null
+      : null
+    if (activeThread && isCodeThread(activeThread)) {
+      set({ route: 'chat' })
+      return
+    }
+
+    const codeThreads = state.threads.filter(isCodeThread)
+    const selectedWorkspace = normalizeWorkspaceRoot(state.workspaceRoot)
+    const target =
+      latestThread(codeThreads.filter((thread) => threadBelongsToWorkspace(thread, selectedWorkspace))) ??
+      latestThread(codeThreads)
+
+    set({ route: 'chat' })
+    if (target && state.runtimeConnection === 'ready') {
+      await get().selectThread(target.id)
+      return
+    }
+
+    sseAbort?.abort()
+    sseAbort = null
+    clearBusyWatchdog()
+    const nextWatch = { ...state.watchTurnCompletion }
+    if (state.activeThreadId && state.busy) {
+      nextWatch[state.activeThreadId] = true
+      watchCompletionNotificationKeys.set(state.activeThreadId, `watch:${state.activeThreadId}:${Date.now()}`)
+    }
+    set({
+      ...clearedThreadSelection(),
+      route: 'chat',
+      watchTurnCompletion: nextWatch
+    })
+    syncTurnCompletionPoll(set, get)
+  },
 
   probeRuntime: async (mode = 'user') => {
     const prev = get().runtimeConnection

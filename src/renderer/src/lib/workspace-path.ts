@@ -18,6 +18,13 @@ export function isInternalTemporaryWorkspace(path?: string): boolean {
   )
 }
 
+export function isClawWorkspacePath(path?: string): boolean {
+  const trimmed = path?.trim() ?? ''
+  if (!trimmed) return false
+  const normalized = normalizePathForMatch(trimmed)
+  return normalized.includes('/.deepseekgui/claw/')
+}
+
 export function normalizeWorkspaceRoot(path?: string): string {
   const trimmed = path?.trim() ?? ''
   if (!trimmed) return ''

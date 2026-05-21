@@ -222,6 +222,7 @@ export function Workbench(): ReactElement {
     workspaceRoot,
     runtimeConnection,
     setRoute,
+    openCode,
     openSettings,
     openPlugins,
     openClaw,
@@ -258,6 +259,7 @@ export function Workbench(): ReactElement {
       workspaceRoot: s.workspaceRoot,
       runtimeConnection: s.runtimeConnection,
       setRoute: s.setRoute,
+      openCode: s.openCode,
       openSettings: s.openSettings,
       openPlugins: s.openPlugins,
       openClaw: s.openClaw,
@@ -774,7 +776,7 @@ export function Workbench(): ReactElement {
               onNewChatInWorkspace={startNewChatInWorkspace}
               onOpenSettings={(section) => openSettings(section)}
               onOpenPlugins={() => openPlugins(sidebarView)}
-              onCodeOpen={() => setRoute('chat')}
+              onCodeOpen={() => void openCode()}
               onClawOpen={() => openClaw()}
             />
           </div>

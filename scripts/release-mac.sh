@@ -17,6 +17,11 @@ set -euo pipefail
 #   --notes-file path    markdown file
 #   --no-commit-notes    generic build info only (old behavior)
 #
+# Speed knobs:
+#   MAC_RELEASE_PARALLEL=force      force parallel arm64/x64 builds even when signing
+#   RELEASE_UPLOAD_CONCURRENCY=4    GitHub/R2 upload concurrency
+#   DEEPSEEK_GUI_RUNTIME_CACHE=0    disable bundled runtime cache
+#
 # After this completes, run on Windows (same version):
 #   ./scripts/release-win.sh --tag v<RELEASE_VERSION from output> --r2 --r2-promote --publish
 
@@ -39,6 +44,8 @@ ISSUER="${ISSUER:-${APPLE_API_ISSUER:-}}"
 RELEASE_CHANNEL="${RELEASE_CHANNEL:-frontier}"
 R2_UPLOAD="${R2_UPLOAD:-false}"
 R2_PROMOTE="${R2_PROMOTE:-false}"
+RELEASE_UPLOAD_CONCURRENCY="${RELEASE_UPLOAD_CONCURRENCY:-4}"
+MAC_RELEASE_PARALLEL="${MAC_RELEASE_PARALLEL:-1}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -59,7 +66,7 @@ while [[ $# -gt 0 ]]; do
     --notes-file) NOTES_FILE="$2"; shift 2 ;;
     --no-commit-notes) RELEASE_NOTES_FROM_COMMITS=0; shift ;;
     --help|-h)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '4,25p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "Unknown flag: $1" ;;
@@ -67,6 +74,97 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$(uname -s)" == "Darwin" ]] || die "release-mac.sh must run on macOS."
+
+build_mac_arch() {
+  local arch="$1"
+  local output_dir="$2"
+  local log_file="$3"
+
+  mkdir -p "${output_dir}" "$(dirname "${log_file}")"
+  cyan "  ${arch}: building dmg + zip -> ${output_dir}"
+  DEEPSEEK_GUI_DIST_DIR="${output_dir}" \
+    npx --yes electron-builder@26.8.1 --config electron-builder.config.cjs --publish never --mac dmg zip "--${arch}" \
+    >"${log_file}" 2>&1
+}
+
+copy_mac_arch_artifacts() {
+  local arch="$1"
+  local output_dir="$2"
+  local files=()
+
+  shopt -s nullglob
+  files=("${output_dir}"/DeepSeek-GUI-*-mac-"${arch}".*)
+  shopt -u nullglob
+
+  [[ ${#files[@]} -gt 0 ]] || die "No macOS ${arch} artifacts found in ${output_dir}"
+  cp -p "${files[@]}" "${ROOT}/dist/"
+}
+
+build_macos_parallel() {
+  local build_root="${ROOT}/dist/.mac-build"
+  local arm64_output="${build_root}/arm64"
+  local x64_output="${build_root}/x64"
+  local arm64_log="${build_root}/arm64.log"
+  local x64_log="${build_root}/x64.log"
+  local arm64_pid
+  local x64_pid
+  local failures=0
+
+  rm -rf "${build_root}"
+  mkdir -p "${ROOT}/dist" "${build_root}"
+
+  cyan "Building renderer/main once..."
+  npm run build || die "electron-vite build failed"
+
+  cyan "Preparing electron-builder..."
+  npx --yes electron-builder@26.8.1 --version >/dev/null \
+    || die "Failed to prepare electron-builder"
+
+  cyan "Building macOS arm64 and x64 in parallel..."
+  build_mac_arch arm64 "${arm64_output}" "${arm64_log}" &
+  arm64_pid=$!
+  build_mac_arch x64 "${x64_output}" "${x64_log}" &
+  x64_pid=$!
+
+  if wait "${arm64_pid}"; then
+    green "  ✓ arm64 build complete"
+  else
+    red "  ✗ arm64 build failed; last log lines:"
+    tail -n 120 "${arm64_log}" >&2 || true
+    failures=1
+  fi
+
+  if wait "${x64_pid}"; then
+    green "  ✓ x64 build complete"
+  else
+    red "  ✗ x64 build failed; last log lines:"
+    tail -n 120 "${x64_log}" >&2 || true
+    failures=1
+  fi
+
+  [[ "${failures}" -eq 0 ]] || die "macOS parallel build failed"
+
+  copy_mac_arch_artifacts arm64 "${arm64_output}"
+  copy_mac_arch_artifacts x64 "${x64_output}"
+  node "${ROOT}/scripts/generate-mac-latest.cjs" "${ROOT}/dist" \
+    || die "Failed to generate merged latest-mac.yml"
+}
+
+build_macos() {
+  if $SIGNING && [[ "${MAC_RELEASE_PARALLEL}" != "force" ]]; then
+    cyan "Building macOS serially because Developer ID signing is enabled."
+    npm run dist:mac || die "macOS build failed"
+    return
+  fi
+
+  if [[ "${MAC_RELEASE_PARALLEL}" == "0" ]]; then
+    cyan "Building macOS serially (MAC_RELEASE_PARALLEL=0)..."
+    npm run dist:mac || die "macOS build failed"
+    return
+  fi
+
+  build_macos_parallel
+}
 
 release_check_prerequisites
 release_apply_signing_env
@@ -89,7 +187,7 @@ release_prepare_builder_cache
 release_clean_dist_artifacts
 
 cyan "Building macOS..."
-npm run dist:mac || die "macOS build failed"
+build_macos
 
 release_write_meta_file
 
@@ -127,6 +225,48 @@ collect "macOS arm64 zip" "dist/DeepSeek-GUI-*-mac-arm64.zip"
 collect "macOS x64 zip" "dist/DeepSeek-GUI-*-mac-x64.zip"
 collect "macOS blockmap" "dist/DeepSeek-GUI-*-mac-*.zip.blockmap"
 
+upload_github_assets() {
+  local tag="$1"
+  shift
+  local concurrency="${RELEASE_UPLOAD_CONCURRENCY}"
+  local failures=0
+  local pids=()
+  local files=()
+
+  if ! [[ "${concurrency}" =~ ^[1-9][0-9]*$ ]]; then
+    concurrency=4
+  fi
+
+  for asset in "$@"; do
+    green "  ↑ $(basename "${asset}")"
+    gh release upload "${tag}" "${asset}" --clobber &
+    pids+=("$!")
+    files+=("${asset}")
+
+    if [[ ${#pids[@]} -ge ${concurrency} ]]; then
+      if wait "${pids[0]}"; then
+        green "  ✓ $(basename "${files[0]}")"
+      else
+        red "  ✗ $(basename "${files[0]}")"
+        failures=1
+      fi
+      pids=("${pids[@]:1}")
+      files=("${files[@]:1}")
+    fi
+  done
+
+  for i in "${!pids[@]}"; do
+    if wait "${pids[$i]}"; then
+      green "  ✓ $(basename "${files[$i]}")"
+    else
+      red "  ✗ $(basename "${files[$i]}")"
+      failures=1
+    fi
+  done
+
+  [[ "${failures}" -eq 0 ]] || die "One or more GitHub release uploads failed."
+}
+
 NOTES_TMP=$(mktemp "${TMPDIR:-/tmp}/release-notes.XXXXXX")
 UNSIGNED_NOTE=""
 if ! $SIGNING; then
@@ -162,12 +302,8 @@ gh release create "${TAG_NAME}" \
   "${GITHUB_RELEASE_FLAGS[@]}" \
   || die "gh release create failed"
 
-cyan "Uploading ${#ASSETS[@]} macOS asset(s)..."
-for asset in "${ASSETS[@]}"; do
-  green "  ↑ $(basename "${asset}")"
-  gh release upload "${TAG_NAME}" "${asset}" --clobber \
-    || die "gh release upload failed for ${asset}"
-done
+cyan "Uploading ${#ASSETS[@]} macOS asset(s) to GitHub (concurrency ${RELEASE_UPLOAD_CONCURRENCY})..."
+upload_github_assets "${TAG_NAME}" "${ASSETS[@]}"
 
 if [[ "${R2_UPLOAD}" == "true" ]]; then
   cyan "Uploading macOS asset metadata to R2 (${TAG_NAME})..."

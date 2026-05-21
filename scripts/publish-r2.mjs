@@ -157,6 +157,25 @@ function readChannel(flags) {
   )
 }
 
+function positiveInt(raw, fallback) {
+  const value = Number.parseInt(String(raw || '').trim(), 10)
+  return Number.isInteger(value) && value > 0 ? value : fallback
+}
+
+async function runConcurrently(items, limit, worker) {
+  let nextIndex = 0
+  const workerCount = Math.min(limit, items.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex]
+        nextIndex += 1
+        await worker(item)
+      }
+    })
+  )
+}
+
 function normalizeBaseUrl(raw) {
   return raw.trim().replace(/\/+$/, '')
 }
@@ -457,7 +476,12 @@ async function uploadPlatform({ flags, dryRun }) {
   console.log(
     `Uploading ${PRODUCT_NAME} ${release.version} ${platform} assets to R2 ${channel} archive ${tag}`
   )
-  for (const file of release.files) {
+  const uploadConcurrency = positiveInt(
+    process.env.R2_UPLOAD_CONCURRENCY || process.env.RELEASE_UPLOAD_CONCURRENCY,
+    4
+  )
+  console.log(`Using R2 upload concurrency: ${uploadConcurrency}`)
+  await runConcurrently(release.files, uploadConcurrency, async (file) => {
     await putObject({
       config,
       key: file.key,
@@ -468,7 +492,7 @@ async function uploadPlatform({ flags, dryRun }) {
       dryRun
     })
     console.log(`  ${file.fileName}`)
-  }
+  })
 
   const manifestKey = `${channelBasePath(config.prefix, channel)}/releases/${tag}/release-${platform}.json`
   const manifest = JSON.stringify(
