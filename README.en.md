@@ -8,7 +8,7 @@
 
 > Bring the local DeepSeek TUI agent into a desktop workbench: **Code** for development, **Write** for documents, **Claw** for IM automation—chat, change review, Skill/MCP management, and updates in one graphical app.
 
-[Website](https://deepseek-gui.com)
+[Website](https://deepseek-gui.com) | [Download](https://deepseek-gui.com)
 
 [![GitHub release](https://img.shields.io/github/v/release/XingYu-Zhong/DeepSeek-GUI?label=github)](https://github.com/XingYu-Zhong/DeepSeek-GUI/releases)
 [![License](https://img.shields.io/github/license/XingYu-Zhong/DeepSeek-GUI)](./LICENSE)
@@ -18,6 +18,11 @@ DeepSeek GUI is a local desktop workbench for developers and frequent AI users. 
 The goal is not to ship another chat wrapper. The goal is to make DeepSeek feel like a reliable desktop partner for real project work.
 
 ---
+
+<p align="center">
+  <img src="src/asset/img/code.gif" alt="Code mode demo" width="49%" style="max-width: 100%;">
+  <img src="src/asset/img/write.gif" alt="Write mode demo" width="49%" style="max-width: 100%;">
+</p>
 
 ## What We Built
 

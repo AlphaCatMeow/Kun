@@ -8,7 +8,7 @@
 
 > 把 DeepSeek TUI 的本地智能体能力带进桌面窗口：**Code** 写代码、**Write** 写文档、**Claw** 接 IM 自动化——聊天、审查改动、管理 Skill/MCP 和更新，都在一个图形化工作台里完成。
 
-[官网](https://deepseek-gui.com)
+[官网](https://deepseek-gui.com) | [下载](https://deepseek-gui.com)
 
 [![GitHub release](https://img.shields.io/github/v/release/XingYu-Zhong/DeepSeek-GUI?label=github)](https://github.com/XingYu-Zhong/DeepSeek-GUI/releases)
 [![License](https://img.shields.io/github/license/XingYu-Zhong/DeepSeek-GUI)](./LICENSE)
@@ -18,6 +18,11 @@ DeepSeek GUI 是一个面向开发者和高频 AI 工作者的本地桌面工作
 这个项目的目标不是再造一个聊天壳，而是让 DeepSeek 变成一个可以稳定参与真实项目工作的桌面伙伴。
 
 ---
+
+<p align="center">
+  <img src="src/asset/img/code.gif" alt="Code 模式演示" width="49%" style="max-width: 100%;">
+  <img src="src/asset/img/write.gif" alt="Write 模式演示" width="49%" style="max-width: 100%;">
+</p>
 
 ## 我们做了什么
 
