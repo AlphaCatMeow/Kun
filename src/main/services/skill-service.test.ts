@@ -108,6 +108,7 @@ describe('skill-service', () => {
       workspaceRoot,
       log: { enabled: false, retentionDays: 7 },
       notifications: { turnComplete: true },
+      appBehavior: { openAtLogin: false, startMinimized: false, closeToTray: false },
       write: defaultWriteSettings(),
       claw: defaultClawSettings(),
       schedule: defaultScheduleSettings(),

@@ -203,6 +203,12 @@ export type NotificationConfigV1 = {
   turnComplete: boolean
 }
 
+export type AppBehaviorConfigV1 = {
+  openAtLogin: boolean
+  startMinimized: boolean
+  closeToTray: boolean
+}
+
 export type ScheduleSkillSettingsV1 = {
   defaultNames: string[]
   extraDirs: string[]
@@ -444,6 +450,7 @@ export type AppSettingsV1 = {
   workspaceRoot: string
   log: LogConfigV1
   notifications: NotificationConfigV1
+  appBehavior: AppBehaviorConfigV1
   write: WriteSettingsV1
   claw: ClawSettingsV1
   schedule: ScheduleSettingsV1
@@ -451,12 +458,13 @@ export type AppSettingsV1 = {
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'write' | 'claw' | 'schedule' | 'guiUpdate'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
   log?: Partial<LogConfigV1>
   notifications?: Partial<NotificationConfigV1>
+  appBehavior?: Partial<AppBehaviorConfigV1>
   write?: WriteSettingsPatchV1
   claw?: ClawSettingsPatchV1
   schedule?: ScheduleSettingsPatchV1

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, powerSaveBlocker } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerSaveBlocker, Tray } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,7 +18,9 @@ import {
   mergeScheduleSettings,
   mergeWriteSettings,
   normalizeAppSettings,
+  normalizeAppBehaviorSettings,
   resolveKunRuntimeSettings,
+  type AppBehaviorConfigV1,
   type AppSettingsPatch,
   type AppSettingsV1
 } from '../shared/app-settings'
@@ -62,6 +64,7 @@ import { isKunHealthResponseBody } from './kun-health'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const APP_USER_MODEL_ID = 'com.xingyuzhong.deepseekgui'
+const HIDDEN_START_ARG = '--hidden'
 const startupTraceEnabled = process.env.DEEPSEEK_GUI_STARTUP_TRACE === '1'
 const startupTraceStart = Date.now()
 
@@ -150,6 +153,9 @@ let clawRuntime: ClawRuntime | null = null
 let scheduleRuntime: ScheduleRuntime | null = null
 let managedRuntimesStoppedForQuit = false
 let managedRuntimesStopPromise: Promise<void> | null = null
+let appBehavior: AppBehaviorConfigV1 = normalizeAppBehaviorSettings()
+let tray: Tray | null = null
+let isQuitting = false
 
 type GuiUpdaterModule = typeof import('./gui-updater')
 
@@ -264,6 +270,91 @@ traceStartup('single instance lock checked', {
   skippedForClawScheduleMcpServer: runningClawScheduleMcpServer
 })
 
+function trayLabels(locale: AppSettingsV1['locale']): { show: string; quit: string; tooltip: string } {
+  if (locale === 'zh') {
+    return {
+      show: '显示 DeepSeek GUI',
+      quit: '退出',
+      tooltip: 'DeepSeek GUI'
+    }
+  }
+  return {
+    show: 'Show DeepSeek GUI',
+    quit: 'Quit',
+    tooltip: 'DeepSeek GUI'
+  }
+}
+
+function shouldStartHidden(settings: AppSettingsV1): boolean {
+  return (
+    process.platform === 'win32' &&
+    settings.appBehavior.openAtLogin &&
+    settings.appBehavior.startMinimized &&
+    process.argv.includes(HIDDEN_START_ARG)
+  )
+}
+
+function syncLoginItemSettings(settings: AppSettingsV1): void {
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return
+  const behavior = settings.appBehavior
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: behavior.openAtLogin,
+      args:
+        process.platform === 'win32' && behavior.openAtLogin && behavior.startMinimized
+          ? [HIDDEN_START_ARG]
+          : []
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[deepseek-gui] failed to update login item settings:', error)
+    logWarn('desktop-behavior', 'Failed to update login item settings.', { message })
+  }
+}
+
+function revealMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function syncTray(settings: AppSettingsV1): void {
+  appBehavior = settings.appBehavior
+  if (!appBehavior.closeToTray) {
+    if (tray) {
+      tray.destroy()
+      tray = null
+    }
+    return
+  }
+
+  if (!tray) {
+    tray = new Tray(appIcon.isEmpty() ? nativeImage.createEmpty() : appIcon)
+    tray.on('click', revealMainWindow)
+    tray.on('double-click', revealMainWindow)
+  }
+
+  const labels = trayLabels(settings.locale)
+  tray.setToolTip(labels.tooltip)
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: labels.show, click: revealMainWindow },
+      { type: 'separator' },
+      {
+        label: labels.quit,
+        click: () => {
+          isQuitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+}
+
 function normalizeNotificationText(raw: string | undefined, fallback: string, maxLength: number): string {
   const value = typeof raw === 'string' && raw.trim() ? raw.trim() : fallback
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value
@@ -273,16 +364,6 @@ type TurnCompleteNotificationPayload = {
   threadId?: string
   title?: string
   body?: string
-}
-
-function revealMainWindow(): void {
-  if (!mainWindow) {
-    createWindow()
-  }
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
 }
 
 async function showTurnCompleteNotification(
@@ -529,7 +610,7 @@ async function ensureKunRuntime(settings: AppSettingsV1): Promise<void> {
   }
 }
 
-function createWindow(): void {
+function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
   traceStartup('createWindow:start')
   const preloadPath = resolvePreloadPath()
   const usesDesktopTitleBar = process.platform === 'win32' || process.platform === 'linux'
@@ -560,9 +641,15 @@ function createWindow(): void {
     logError('preload', 'Failed to load preload script', { preloadPath, message })
   })
   const showWindow = (): void => {
+    if (options.suppressInitialShow) return
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return
     mainWindow.show()
   }
+  mainWindow.on('close', (event) => {
+    if (isQuitting || !appBehavior.closeToTray) return
+    event.preventDefault()
+    mainWindow?.hide()
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -692,6 +779,9 @@ app.whenReady().then(async () => {
   traceStartup('settings load:start')
   const initial = await store.load()
   traceStartup('settings load:done')
+  appBehavior = initial.appBehavior
+  syncLoginItemSettings(initial)
+  syncTray(initial)
   await syncClawScheduleMcpConfig(initial, getClawScheduleMcpLaunchConfig()).catch((error) => {
     console.error('[claw-schedule-mcp] failed to sync config on startup:', error)
   })
@@ -737,6 +827,10 @@ app.whenReady().then(async () => {
       provider: mergeModelProviderSettings(prev.provider, providerPatch),
       log: { ...prev.log, ...(partial.log ?? {}) },
       notifications: { ...prev.notifications, ...(partial.notifications ?? {}) },
+      appBehavior: normalizeAppBehaviorSettings({
+        ...prev.appBehavior,
+        ...(partial.appBehavior ?? {})
+      }),
       write: mergeWriteSettings(prev.write, partial.write),
       claw: mergeClawSettings(prev.claw, partial.claw),
       schedule: mergeScheduleSettings(prev.schedule, partial.schedule),
@@ -756,6 +850,8 @@ app.whenReady().then(async () => {
     scheduleRuntime?.sync(saved)
     clawRuntime?.sync(saved)
     syncWeixinBridgeRuntime(saved)
+    syncLoginItemSettings(saved)
+    syncTray(saved)
     return saved
   }
 
@@ -796,7 +892,7 @@ app.whenReady().then(async () => {
   registerRuntimeSseIpc({ ipcMain, store, ensureRuntime, logError })
   traceStartup('ipc registration:done')
 
-  createWindow()
+  createWindow({ suppressInitialShow: shouldStartHidden(initial) })
   traceStartup('createWindow:returned')
 
   void pruneOnStartup().catch((err) => {
@@ -812,14 +908,12 @@ app.whenReady().then(async () => {
   }
 
   app.on('second-instance', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
+    revealMainWindow()
   })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    else revealMainWindow()
   })
 }).catch((error) => {
   const message = error instanceof Error ? error.message : String(error)
@@ -839,6 +933,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  isQuitting = true
   if (managedRuntimesStoppedForQuit) return
   event.preventDefault()
   void stopManagedRuntimesForQuit()
