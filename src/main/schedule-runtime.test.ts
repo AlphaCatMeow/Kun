@@ -68,7 +68,8 @@ function settingsWith(
       tasks,
       ...schedulePatch
     }),
-    guiUpdate: { channel: 'stable' }
+    guiUpdate: { channel: 'stable' },
+    codePromptPrefix: ''
   }
 }
 

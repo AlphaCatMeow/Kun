@@ -54,6 +54,7 @@ function createSettings(patch: Partial<AppSettingsV1['write']['inlineCompletion'
     guiUpdate: {
       channel: 'stable'
     },
+    codePromptPrefix: '',
     claw: defaultClawSettings()
   }
 }

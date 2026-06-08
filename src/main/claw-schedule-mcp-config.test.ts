@@ -55,6 +55,7 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
     guiUpdate: {
       channel: 'stable'
     },
+    codePromptPrefix: '',
     claw: {
       ...claw,
       enabled: true,

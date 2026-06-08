@@ -54,7 +54,8 @@ function buildSettings(): AppSettingsV1 {
         }
       ]
     },
-    guiUpdate: { channel: 'stable' }
+    guiUpdate: { channel: 'stable' },
+    codePromptPrefix: ''
   }
 }
 

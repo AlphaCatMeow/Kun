@@ -483,7 +483,8 @@ const settingsPatchObjectSchema = z.object({
   schedule: scheduleSettingsPatchSchema.optional(),
   guiUpdate: z.object({
     channel: z.enum(GUI_UPDATE_CHANNELS).optional()
-  }).strict().optional()
+  }).strict().optional(),
+  codePromptPrefix: z.string().max(MAX_CHANNEL_TEXT_LENGTH).optional()
 }).strict()
 
 export const settingsPatchSchema = z.preprocess(stripLegacySettingsPatchKeys, settingsPatchObjectSchema)

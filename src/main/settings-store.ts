@@ -197,6 +197,7 @@ const defaultSettings = (): AppSettingsV1 => ({
   guiUpdate: {
     channel: DEFAULT_GUI_UPDATE_CHANNEL
   },
+  codePromptPrefix: '',
   write: defaultWriteSettings(),
   claw: defaultClawSettings(),
   schedule: defaultScheduleSettings()
@@ -221,7 +222,8 @@ function buildMergedSettings(parsed: Partial<AppSettingsV1>): AppSettingsV1 {
     write: mergeWriteSettings(defaults.write, migrated.write),
     claw: mergeClawSettings(defaults.claw, migrated.claw),
     schedule: mergeScheduleSettings(defaults.schedule, migrated.schedule),
-    guiUpdate: { ...defaults.guiUpdate, ...migrated.guiUpdate }
+    guiUpdate: { ...defaults.guiUpdate, ...migrated.guiUpdate },
+    codePromptPrefix: typeof migrated.codePromptPrefix === 'string' ? migrated.codePromptPrefix : ''
   }
 }
 

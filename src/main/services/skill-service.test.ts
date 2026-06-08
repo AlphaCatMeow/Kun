@@ -112,7 +112,8 @@ describe('skill-service', () => {
       write: defaultWriteSettings(),
       claw: defaultClawSettings(),
       schedule: defaultScheduleSettings(),
-      guiUpdate: { channel: 'stable' }
+      guiUpdate: { channel: 'stable' },
+      codePromptPrefix: ''
     }
   }
 })

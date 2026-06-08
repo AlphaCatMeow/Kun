@@ -65,7 +65,8 @@ function buildSettings(): AppSettingsV1 {
     write: defaultWriteSettings(),
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
-    guiUpdate: { channel: 'stable' }
+    guiUpdate: { channel: 'stable' },
+    codePromptPrefix: ''
   }
   settings.claw.enabled = true
   settings.claw.im.workspaceRoot = '/tmp/claw'

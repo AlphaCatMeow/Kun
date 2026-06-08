@@ -120,7 +120,8 @@ describe('Kun single-agent regression', () => {
       write: defaultWriteSettings(),
       claw: defaultClawSettings(),
       schedule: defaultScheduleSettings(),
-      guiUpdate: { channel: 'stable' }
+      guiUpdate: { channel: 'stable' },
+      codePromptPrefix: ''
     }
 
     expect(kunRuntimeAdapter.id).toBe('kun')

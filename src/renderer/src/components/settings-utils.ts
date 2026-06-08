@@ -101,7 +101,8 @@ export function coerceRendererSettings(settings: AppSettingsV1): AppSettingsV1 {
     schedule: normalizeScheduleSettings(raw.schedule),
     guiUpdate: {
       channel: normalizeGuiUpdateChannel(raw.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL)
-    }
+    },
+    codePromptPrefix: typeof raw.codePromptPrefix === 'string' ? raw.codePromptPrefix : ''
   }
 }
 
