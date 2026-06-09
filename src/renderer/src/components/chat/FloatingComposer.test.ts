@@ -809,4 +809,40 @@ describe('FloatingComposer capability controls', () => {
     expect(html).toContain('Preview')
     expect(html).toContain('Review')
   })
+
+  it('keeps the empty-session composer interactive in the Electron drag shell', () => {
+    useChatStore.setState({
+      activeThreadId: null,
+      activeThreadGoal: null,
+      route: 'chat',
+      workspaceRoot: '/workspace/deepseek-gui',
+      threads: []
+    })
+
+    const html = renderToStaticMarkup(
+      createElement(FloatingComposer, {
+        input: '',
+        setInput: () => undefined,
+        workspaceRootOverride: '/workspace/deepseek-gui',
+        mode: 'agent',
+        setMode: () => undefined,
+        busy: false,
+        runtimeReady: true,
+        hasActiveThread: false,
+        composerModel: '',
+        composerPickList: [],
+        onComposerModelChange: () => undefined,
+        queuedMessages: [],
+        onRemoveQueuedMessage: () => undefined,
+        onSend: () => undefined,
+        onInterrupt: () => undefined,
+        attachmentUploadEnabled: false,
+        webAccessAvailable: false
+      })
+    )
+
+    expect(html).toContain('ds-floating-composer ds-no-drag')
+    expect(html).toContain('ds-composer-shell ds-chat-composer ds-frosted ds-no-drag')
+    expect(html.match(/<textarea[^>]*>/)?.[0] ?? '').not.toContain('disabled=""')
+  })
 })

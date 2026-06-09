@@ -226,6 +226,23 @@ body,
   -webkit-app-region: drag;
 }
 
+.ds-drag {
+  -webkit-app-region: drag;
+}
+
+.ds-no-drag,
+button,
+input,
+select,
+textarea,
+option,
+a,
+summary,
+[role='button'],
+[contenteditable='true'] {
+  -webkit-app-region: no-drag;
+}
+
 html {
   color-scheme: light;
 }

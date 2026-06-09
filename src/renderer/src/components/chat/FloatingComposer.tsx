@@ -7,6 +7,7 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactElement
 } from 'react'
 import {
@@ -1199,6 +1200,18 @@ export function FloatingComposer({
     handlePrimaryAction()
   }
 
+  const handleComposerShellMouseDown = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (!canCompose || event.target === draft.textareaRef.current) return
+    const target = event.target
+    if (
+      target instanceof Element &&
+      target.closest("button,input,select,a,summary,[role='button'],[contenteditable='true']")
+    ) {
+      return
+    }
+    draft.focusComposer()
+  }
+
   const handleAttachmentInput = (event: ChangeEvent<HTMLInputElement>): void => {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ''
@@ -1275,8 +1288,8 @@ export function FloatingComposer({
 
   return (
     <div className={compact
-      ? 'ds-floating-composer pointer-events-auto w-full pb-0 pt-0'
-      : 'ds-floating-composer ds-chat-column-inset pointer-events-auto w-full max-w-4xl pb-3 pt-0'}
+      ? 'ds-floating-composer ds-no-drag pointer-events-auto w-full pb-0 pt-0'
+      : 'ds-floating-composer ds-no-drag ds-chat-column-inset pointer-events-auto w-full max-w-4xl pb-3 pt-0'}
     >
       <FloatingComposerQueuedMessages
         messages={queuedMessages}
@@ -1618,9 +1631,10 @@ export function FloatingComposer({
         ) : null}
 
         <div
-          className={`ds-composer-shell ds-chat-composer ds-frosted flex flex-col gap-1 px-3 pb-2 pt-2 transition ${
+          className={`ds-composer-shell ds-chat-composer ds-frosted ds-no-drag flex flex-col gap-1 px-3 pb-2 pt-2 transition ${
             draft.focused ? 'ds-chat-composer-focus' : ''
           } ${compact ? 'rounded-[24px] px-3 py-2 shadow-none' : ''}`}
+          onMouseDown={handleComposerShellMouseDown}
           onPaste={handleComposerPaste}
           onDragOver={handleComposerDragOver}
           onDrop={handleComposerDrop}

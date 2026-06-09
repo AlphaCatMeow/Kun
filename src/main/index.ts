@@ -39,6 +39,7 @@ import {
   runtimeAuthHeaders,
   runtimeRequestViaHost
 } from './runtime/kun-adapter'
+import { waitForRuntimeTurnsIdle } from './runtime/managed-runtime-idle'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
 import { createClawRuntime, type ClawRuntime } from './claw-runtime'
 import { createScheduleRuntime, type ScheduleRuntime } from './schedule-runtime'
@@ -800,8 +801,16 @@ async function waitForManagedRuntimeReadyBeforeStop(
   source: string
 ): Promise<void> {
   const healthy = await waitForKunHealth(settings, 20_000)
-  if (healthy) return
-  logWarn(source, 'Kun did not become healthy before a managed restart; stopping it anyway')
+  if (!healthy) {
+    logWarn(source, 'Kun did not become healthy before a managed restart; stopping it anyway')
+    return
+  }
+  const idle = await waitForRuntimeTurnsIdle({ settings })
+  if (idle === 'timeout') {
+    logWarn(source, 'Kun still has running turns after waiting; stopping it anyway')
+  } else if (idle === 'unavailable') {
+    logWarn(source, 'Could not verify Kun turn idleness before a managed restart; stopping it anyway')
+  }
 }
 
 async function runtimeRequest(
