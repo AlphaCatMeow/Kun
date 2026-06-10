@@ -195,6 +195,10 @@ export function registerRuntimeSseIpc(options: {
               const { done, value } = await reader.read()
               if (done) break
               buffer += dec.decode(value, { stream: true })
+              // Batch every event parsed from this network chunk into one IPC
+              // message — streaming turns otherwise pay a structured-clone
+              // send per token delta.
+              const batch: Record<string, unknown>[] = []
               let next: { block: string; rest: string } | null
               while ((next = takeSseBlock(buffer)) !== null) {
                 const block = next.block
@@ -205,8 +209,11 @@ export function registerRuntimeSseIpc(options: {
                   if (typeof payload.seq === 'number') {
                     nextSinceSeq = Math.max(nextSinceSeq, payload.seq)
                   }
-                  wc.send('runtime:sse-event', { streamId: id, data: payload })
+                  batch.push(payload)
                 }
+              }
+              if (batch.length > 0) {
+                wc.send('runtime:sse-event', { streamId: id, events: batch })
               }
             }
             buffer += dec.decode()
@@ -218,7 +225,7 @@ export function registerRuntimeSseIpc(options: {
                 if (typeof payload.seq === 'number') {
                   nextSinceSeq = Math.max(nextSinceSeq, payload.seq)
                 }
-                wc.send('runtime:sse-event', { streamId: id, data: payload })
+                wc.send('runtime:sse-event', { streamId: id, events: [payload] })
               }
             }
           } catch (e) {

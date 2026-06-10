@@ -932,6 +932,40 @@ function runtimeStatusFromEvent(event: CoreRuntimeEventJson): RuntimeStatusEvent
 	  return null
 	}
 
+/**
+ * Dispatches a batch of runtime events, coalescing consecutive text and
+ * reasoning deltas into a single sink.onDeltas call so one network chunk
+ * costs one store update instead of one per token.
+ */
+export async function dispatchKunRuntimeEvents(
+  events: CoreRuntimeEventJson[],
+  sink: ThreadEventSink,
+  handleApprovalRequest: (event: CoreRuntimeEventJson, sink: ThreadEventSink) => Promise<void>
+): Promise<void> {
+  let pendingDeltas: ThreadDeltaEvent[] = []
+  const flushDeltas = (): void => {
+    if (pendingDeltas.length === 0) return
+    sink.onDeltas(pendingDeltas)
+    pendingDeltas = []
+  }
+  for (const event of events) {
+    if (event.kind === 'assistant_text_delta' || event.kind === 'assistant_reasoning_delta') {
+      const text = event.item?.text ?? ''
+      if (text) {
+        pendingDeltas.push({
+          text,
+          kind: event.kind === 'assistant_text_delta' ? 'agent_message' : 'agent_reasoning',
+          seq: event.seq
+        })
+      }
+      continue
+    }
+    flushDeltas()
+    await dispatchKunRuntimeEvent(event, sink, handleApprovalRequest)
+  }
+  flushDeltas()
+}
+
 export async function dispatchKunRuntimeEvent(
   event: CoreRuntimeEventJson,
   sink: ThreadEventSink,

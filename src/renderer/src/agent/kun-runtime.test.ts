@@ -220,7 +220,11 @@ describe('KunRuntimeProvider', () => {
     expect(runtimeRequest).toHaveBeenCalledWith(
       '/v1/threads/thr_1/turns',
       'POST',
-      JSON.stringify({ prompt: 'hello' })
+      JSON.stringify({
+        prompt: 'hello',
+        approvalPolicy: 'auto',
+        sandboxMode: 'danger-full-access'
+      })
     )
     expect(result.userMessageItemId).toBe('item_user_real')
   })
@@ -239,7 +243,12 @@ describe('KunRuntimeProvider', () => {
     expect(runtimeRequest).toHaveBeenCalledWith(
       '/v1/threads/thr_1/turns',
       'POST',
-      JSON.stringify({ prompt: 'describe this', attachmentIds: ['att_1'] })
+      JSON.stringify({
+        prompt: 'describe this',
+        approvalPolicy: 'auto',
+        sandboxMode: 'danger-full-access',
+        attachmentIds: ['att_1']
+      })
     )
   })
 
@@ -260,7 +269,13 @@ describe('KunRuntimeProvider', () => {
     expect(runtimeRequest).toHaveBeenCalledWith(
       '/v1/threads/thr_1/turns',
       'POST',
-      JSON.stringify({ prompt: 'think harder', model: 'auto', reasoningEffort: 'max' })
+      JSON.stringify({
+        prompt: 'think harder',
+        model: 'auto',
+        approvalPolicy: 'auto',
+        sandboxMode: 'danger-full-access',
+        reasoningEffort: 'max'
+      })
     )
   })
 
@@ -291,6 +306,8 @@ describe('KunRuntimeProvider', () => {
       'POST',
       JSON.stringify({
         prompt: 'refine the plan',
+        approvalPolicy: 'auto',
+        sandboxMode: 'danger-full-access',
         displayText: 'Generate implementation plan',
         mode: 'plan',
         guiPlan: {
@@ -614,7 +631,7 @@ describe('KunRuntimeProvider', () => {
   })
 
   it('maps Kun SSE deltas into the thread event sink', async () => {
-    let onData: ((payload: { streamId: string; data: unknown }) => void) | null = null
+    let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
     const ac = new AbortController()
     const sink: ThreadEventSink = {
       onSeq: vi.fn(),
@@ -639,20 +656,22 @@ describe('KunRuntimeProvider', () => {
         queueMicrotask(() => {
           onData?.({
             streamId: streamId ?? 'stream-1',
-            data: {
-              kind: 'assistant_text_delta',
-              seq: 3,
-              item: {
-                id: 'item_text',
-                turnId: 'turn_1',
-                threadId: 'thr_1',
-                role: 'assistant',
-                status: 'running',
-                createdAt: 't1',
-                kind: 'assistant_text',
-                text: 'he'
+            events: [
+              {
+                kind: 'assistant_text_delta',
+                seq: 3,
+                item: {
+                  id: 'item_text',
+                  turnId: 'turn_1',
+                  threadId: 'thr_1',
+                  role: 'assistant',
+                  status: 'running',
+                  createdAt: 't1',
+                  kind: 'assistant_text',
+                  text: 'he'
+                }
               }
-            }
+            ]
           })
         })
         return { streamId: streamId ?? 'stream-1' }
@@ -665,7 +684,7 @@ describe('KunRuntimeProvider', () => {
   })
 
   it('auto-approves approval requests when policy is auto', async () => {
-    let onData: ((payload: { streamId: string; data: unknown }) => void) | null = null
+    let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
     const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
     const ac = new AbortController()
     const sink: ThreadEventSink = {
@@ -697,11 +716,10 @@ describe('KunRuntimeProvider', () => {
         queueMicrotask(() => {
           onData?.({
             streamId: streamId ?? 'stream-1',
-            data: { kind: 'approval_requested', seq: 4, approvalId: 'appr_auto', summary: 'Need approval' }
-          })
-          onData?.({
-            streamId: streamId ?? 'stream-1',
-            data: { kind: 'turn_completed', seq: 5 }
+            events: [
+              { kind: 'approval_requested', seq: 4, approvalId: 'appr_auto', summary: 'Need approval' },
+              { kind: 'turn_completed', seq: 5 }
+            ]
           })
         })
         return { streamId: streamId ?? 'stream-1' }
@@ -719,7 +737,7 @@ describe('KunRuntimeProvider', () => {
 
   it('renders approval cards for suggest and untrusted policies', async () => {
     for (const policy of ['suggest', 'untrusted'] as const) {
-      let onData: ((payload: { streamId: string; data: unknown }) => void) | null = null
+      let onData: ((payload: { streamId: string; events: unknown[] }) => void) | null = null
       const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
       const ac = new AbortController()
       const sink: ThreadEventSink = {
@@ -751,16 +769,15 @@ describe('KunRuntimeProvider', () => {
           queueMicrotask(() => {
             onData?.({
               streamId: streamId ?? 'stream-1',
-              data: {
-                kind: 'approval_requested',
-                seq: 6,
-                approvalId: `appr_${policy}`,
-                summary: `${policy} approval`
-              }
-            })
-            onData?.({
-              streamId: streamId ?? 'stream-1',
-              data: { kind: 'turn_completed', seq: 7 }
+              events: [
+                {
+                  kind: 'approval_requested',
+                  seq: 6,
+                  approvalId: `appr_${policy}`,
+                  summary: `${policy} approval`
+                },
+                { kind: 'turn_completed', seq: 7 }
+              ]
             })
           })
           return { streamId: streamId ?? 'stream-1' }

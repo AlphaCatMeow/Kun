@@ -125,7 +125,8 @@ export type ConfirmDialogOptions = {
   confirmLabel?: string
   cancelLabel?: string
 }
-export type SseEventPayload = { streamId: string; data: unknown }
+/** One IPC message carries every SSE event parsed from a network chunk. */
+export type SseEventPayload = { streamId: string; events: unknown[] }
 export type SseEndPayload = { streamId: string }
 export type SseErrorPayload = { streamId: string; status?: number; message?: string }
 
