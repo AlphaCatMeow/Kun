@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Columns2,
@@ -55,6 +55,7 @@ import {
   formatSaveLabel,
   inlineAgentPosition,
   isMarkdownFile,
+  computeWriteDocumentStats,
   useDebouncedValue,
   type WriteNotice
 } from './write-workspace-view-utils'
@@ -214,6 +215,11 @@ export function WriteWorkspaceView({
     ? writeRelativeToWorkspace(workspaceRoot, activeFilePath)
     : t('writeNoFileOpen')
   const activeFileName = activeFilePath ? writeBasenameFromPath(activeFilePath) : t('writeStudio')
+  const documentStats = useMemo(
+    () => (activeFileIsText ? computeWriteDocumentStats(fileContent, isMarkdown) : null),
+    [activeFileIsText, fileContent, isMarkdown],
+  )
+  const documentStatsLabel = documentStats ? t('writeCharacterCount', { count: documentStats.characterCount }) : null
   const workspacePathLabel = rootDirectory || workspaceRoot
   const workspaceName = workspacePathLabel ? writeBasenameFromPath(workspacePathLabel) : t('writeWorkspace')
   const exportInFlight = exportingFormat !== null
@@ -946,6 +952,7 @@ export function WriteWorkspaceView({
         activeFileLabel={activeFileLabel}
         activeFileName={activeFileName}
         activeFilePath={activeFilePath ?? ''}
+        documentStatsLabel={documentStatsLabel}
         assistantOpen={assistantOpen}
         exportInFlight={exportInFlight}
         exportMenuOpen={exportMenuOpen}
