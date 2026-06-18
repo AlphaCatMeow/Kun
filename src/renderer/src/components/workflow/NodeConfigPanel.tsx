@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2 } from 'lucide-react'
+import { ModelPicker } from './ModelPicker'
 import {
   SCHEDULE_REASONING_EFFORT_IDS,
   getModelProviderSettings,
@@ -234,44 +235,12 @@ export function NodeConfigPanel({ node, settings, lastResult, onChange, onDelete
                 }
               />
             </Field>
-            <Field label={t('scheduleProvider')}>
-              <select
-                className={INPUT_CLASS}
-                value={node.config.providerId}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, providerId: event.target.value, model: '' } })
-                }
-              >
-                <option value="">—</option>
-                {providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name || provider.id}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label={t('scheduleModel')}>
-              <select
-                className={INPUT_CLASS}
-                value={node.config.model}
-                onChange={(event) =>
-                  onChange({ ...node, config: { ...node.config, model: event.target.value } })
-                }
-              >
-                <option value="">auto</option>
-                {Array.from(
-                  new Set([
-                    node.config.model,
-                    ...(providers.find((p) => p.id === node.config.providerId)?.models ??
-                      providers.flatMap((p) => p.models))
-                  ].filter(Boolean))
-                ).map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <ModelPicker
+              providers={providers}
+              providerId={node.config.providerId}
+              model={node.config.model}
+              onChange={({ providerId, model }) => onChange({ ...node, config: { ...node.config, providerId, model } })}
+            />
             <Field label={t('scheduleReasoning')}>
               <select
                 className={INPUT_CLASS}
