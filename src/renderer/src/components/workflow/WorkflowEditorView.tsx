@@ -279,7 +279,7 @@ function WorkflowEditorInner({
     <div className="ds-no-drag fixed inset-0 z-[60] flex flex-col bg-ds-main">
       <header
         className="ds-drag flex shrink-0 items-center gap-3 border-b border-ds-border py-2.5 pr-4"
-        style={{ paddingLeft: 'calc(var(--ds-window-controls-safe-inset) + 1.5rem)' }}
+        style={{ paddingLeft: 'calc(var(--ds-window-controls-safe-inset) + 2.5rem)' }}
       >
         <button
           type="button"
