@@ -134,6 +134,9 @@ const ScheduleTasksView = lazy(() =>
 const WorkflowView = lazy(() =>
   import('./workflow/WorkflowView').then((module) => ({ default: module.WorkflowView }))
 )
+const WorkflowRunPanel = lazy(() =>
+  import('./workflow/WorkflowRunPanel').then((module) => ({ default: module.WorkflowRunPanel }))
+)
 
 type PendingSddPlanTarget = {
   planId: string
@@ -2702,6 +2705,11 @@ export function Workbench(): ReactElement {
         )}
         {renderPlanPanelOverlay()}
       </main>
+      {route === 'chat' ? (
+        <Suspense fallback={null}>
+          <WorkflowRunPanel enabled />
+        </Suspense>
+      ) : null}
     </div>
   )
 }
