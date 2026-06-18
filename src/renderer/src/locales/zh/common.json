@@ -77,6 +77,8 @@
   "workflowStatus_success": "成功",
   "workflowStatus_error": "失败",
   "workflowPalette": "节点",
+  "workflowCollapsePanel": "折叠侧栏",
+  "workflowExpandPanel": "展开侧栏",
   "workflowGroup_trigger": "触发器",
   "workflowGroup_ai": "AI",
   "workflowGroup_flow": "流程控制",

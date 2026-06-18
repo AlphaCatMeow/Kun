@@ -18,7 +18,18 @@ import {
   type OnConnectEnd,
   type OnConnectStart
 } from '@xyflow/react'
-import { ArrowLeft, ChevronRight, MousePointerClick, Play, Plus, Save, Settings2, Square, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  MousePointerClick,
+  Play,
+  Plus,
+  Save,
+  Settings2,
+  Square,
+  X
+} from 'lucide-react'
 import type {
   AppSettingsV1,
   WorkflowCustomModuleV1,
@@ -120,6 +131,8 @@ function WorkflowEditorInner({
   const [connectMenu, setConnectMenu] = useState<ConnectMenuState | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set())
   const [showModules, setShowModules] = useState(false)
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false)
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const connectingRef = useRef<{ nodeId: string; handleId: string } | null>(null)
 
   const toggleGroup = useCallback((groupId: string): void => {
@@ -429,6 +442,7 @@ function WorkflowEditorInner({
       </header>
 
       <div className="flex min-h-0 flex-1">
+        {!leftPanelCollapsed ? (
         <aside className="flex w-[184px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-ds-border bg-ds-card/40 px-2 py-3">
           <span className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ds-faint">
             {t('workflowPalette')}
@@ -553,6 +567,7 @@ function WorkflowEditorInner({
             ) : null}
           </div>
         </aside>
+        ) : null}
 
         <div className="relative min-w-0 flex-1" onDrop={onCanvasDrop} onDragOver={onCanvasDragOver}>
           <WorkflowRunStatusContext.Provider value={runStatus}>
@@ -576,7 +591,16 @@ function WorkflowEditorInner({
               >
                 <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
                 <Controls showInteractive={false} />
-                <MiniMap pannable zoomable />
+                <MiniMap
+                  pannable
+                  zoomable
+                  className="ds-workflow-minimap"
+                  style={{ width: 150, height: 96 }}
+                  nodeColor="var(--ds-accent)"
+                  nodeStrokeColor="transparent"
+                  nodeBorderRadius={3}
+                  maskColor="rgb(15 23 42 / 0.08)"
+                />
               </ReactFlow>
             </WorkflowNodeActionsContext.Provider>
           </WorkflowRunStatusContext.Provider>
@@ -621,8 +645,36 @@ function WorkflowEditorInner({
               </div>
             </>
           ) : null}
+
+          <button
+            type="button"
+            onClick={() => setLeftPanelCollapsed((value) => !value)}
+            title={leftPanelCollapsed ? t('workflowExpandPanel') : t('workflowCollapsePanel')}
+            aria-label={leftPanelCollapsed ? t('workflowExpandPanel') : t('workflowCollapsePanel')}
+            className="absolute left-0 top-1/2 z-10 flex h-12 w-5 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-ds-border bg-ds-card text-ds-faint shadow-sm transition hover:text-ds-ink"
+          >
+            {leftPanelCollapsed ? (
+              <ChevronRight className="h-4 w-4" strokeWidth={2} />
+            ) : (
+              <ChevronLeft className="h-4 w-4" strokeWidth={2} />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRightPanelCollapsed((value) => !value)}
+            title={rightPanelCollapsed ? t('workflowExpandPanel') : t('workflowCollapsePanel')}
+            aria-label={rightPanelCollapsed ? t('workflowExpandPanel') : t('workflowCollapsePanel')}
+            className="absolute right-0 top-1/2 z-10 flex h-12 w-5 -translate-y-1/2 items-center justify-center rounded-l-lg border border-r-0 border-ds-border bg-ds-card text-ds-faint shadow-sm transition hover:text-ds-ink"
+          >
+            {rightPanelCollapsed ? (
+              <ChevronLeft className="h-4 w-4" strokeWidth={2} />
+            ) : (
+              <ChevronRight className="h-4 w-4" strokeWidth={2} />
+            )}
+          </button>
         </div>
 
+        {!rightPanelCollapsed ? (
         <aside className="flex w-[320px] shrink-0 flex-col overflow-hidden border-l border-ds-border bg-ds-card/40">
           <NodeConfigPanel
             node={selectedNode}
@@ -633,6 +685,7 @@ function WorkflowEditorInner({
             onSavePreset={handleSavePreset}
           />
         </aside>
+        ) : null}
       </div>
 
       {showModules ? (

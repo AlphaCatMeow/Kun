@@ -77,6 +77,8 @@
   "workflowStatus_success": "Success",
   "workflowStatus_error": "Error",
   "workflowPalette": "Nodes",
+  "workflowCollapsePanel": "Collapse panel",
+  "workflowExpandPanel": "Expand panel",
   "workflowGroup_trigger": "Triggers",
   "workflowGroup_ai": "AI",
   "workflowGroup_flow": "Flow control",
