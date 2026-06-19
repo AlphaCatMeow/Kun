@@ -26,6 +26,7 @@ import {
   QualityConfigSchema,
   RuntimeTuningConfigSchema
 } from '../../kun/src/config/kun-config.js'
+import { HooksConfigSchema } from '../../kun/src/hooks/hook-config.js'
 import {
   AttachmentsCapabilityConfig,
   ComputerUseCapabilityConfig,
@@ -417,6 +418,7 @@ export async function syncGuiManagedKunConfig(
   const storage = storageConfigForRuntime(runtime.storage)
   const mcpSearch = runtime.mcpSearch
   const skillCapability = await skillCapabilityConfigForRuntime(skills, options?.scheduleMcp?.settings)
+  const workflowHookEntries = buildWorkflowHookEntries(options?.scheduleMcp?.settings.workflow)
   const next = {
     serve: {
       ...serve,
@@ -479,7 +481,8 @@ export async function syncGuiManagedKunConfig(
           minScore: mcpSearch.minScore
         }
       }
-    }
+    },
+    ...(workflowHookEntries.length ? { hooks: workflowHookEntries } : {})
   }
   const parsedNext = KunConfigSchema.safeParse(next)
   if (!parsedNext.success) {
@@ -967,10 +970,35 @@ function sanitizeKunCapabilitiesConfig(value: unknown): Record<string, unknown> 
   return next
 }
 
+/** Validate the GUI-managed `hooks` array (workflow + command entries). Array, not an object. */
+function parseKunHooksSection(value: unknown): unknown[] {
+  const parsed = HooksConfigSchema.safeParse(Array.isArray(value) ? value : [])
+  return parsed.success ? parsed.data : []
+}
+
+/** Build kun `hooks` entries from the GUI's workflow hook triggers (workflow-backed hooks). */
+function buildWorkflowHookEntries(workflow: AppSettingsV1['workflow'] | undefined): unknown[] {
+  if (!workflow) return []
+  const baseUrl = `http://127.0.0.1:${workflow.webhookPort}`
+  const secret = workflow.webhookSecret.trim()
+  return (workflow.hookTriggers ?? [])
+    .filter((trigger) => trigger.enabled && trigger.workflowId)
+    .map((trigger) => ({
+      phase: trigger.phase,
+      ...(trigger.toolNames.length ? { toolNames: trigger.toolNames } : {}),
+      workflow: trigger.workflowId,
+      mode: trigger.mode,
+      baseUrl,
+      ...(secret ? { secret } : {}),
+      ...(trigger.timeoutMs > 0 ? { timeoutMs: trigger.timeoutMs } : {})
+    }))
+}
+
 function sanitizeKunConfigSections(
   existing: Record<string, unknown> | null
 ): Record<string, unknown> | null {
   if (!existing) return null
+  const hooks = parseKunHooksSection(existing.hooks)
   return {
     serve: parseKunConfigSection(KunServeConfigSchema, existing.serve),
     models: parseKunConfigSection(ModelConfigSchema, existing.models),
@@ -980,7 +1008,8 @@ function sanitizeKunConfigSections(
     ),
     runtime: parseKunConfigSection(RuntimeTuningConfigSchema, existing.runtime),
     quality: parseKunConfigSection(QualityConfigSchema, existing.quality),
-    capabilities: sanitizeKunCapabilitiesConfig(existing.capabilities)
+    capabilities: sanitizeKunCapabilitiesConfig(existing.capabilities),
+    ...(hooks.length ? { hooks } : {})
   }
 }
 
