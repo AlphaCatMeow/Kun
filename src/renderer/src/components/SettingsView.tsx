@@ -513,7 +513,12 @@ export function SettingsView(): ReactElement {
     const provider = getProvider()
     if (typeof provider.createMemory !== 'function') return false
     try {
-      const memory = await provider.createMemory(input)
+      const workspace = normalizeWorkspaceRoot(formWorkspaceRoot)
+      const memory = await provider.createMemory({
+        ...input,
+        ...(input.scope === 'user' ? {} : { workspace }),
+        ...(input.scope === 'project' ? { project: workspace } : {})
+      })
       setMemoryRecords((records) => [memory, ...records])
       return true
     } catch (error) {
@@ -532,7 +537,9 @@ export function SettingsView(): ReactElement {
     const provider = getProvider()
     if (typeof provider.updateMemory !== 'function') return false
     try {
-      const memory = await provider.updateMemory(memoryId, patch)
+      const memory = await provider.updateMemory(memoryId, patch, {
+        workspace: normalizeWorkspaceRoot(formWorkspaceRoot)
+      })
       setMemoryRecords((records) => records.map((record) => (record.id === memoryId ? memory : record)))
       return true
     } catch (error) {
@@ -548,7 +555,9 @@ export function SettingsView(): ReactElement {
     const provider = getProvider()
     if (typeof provider.updateMemory !== 'function') return
     try {
-      const memory = await provider.updateMemory(memoryId, { disabled: true })
+      const memory = await provider.updateMemory(memoryId, { disabled: true }, {
+        workspace: normalizeWorkspaceRoot(formWorkspaceRoot)
+      })
       setMemoryRecords((records) => records.map((record) => record.id === memoryId ? memory : record))
     } catch (error) {
       setRuntimeDiagnosticsNotice({
@@ -562,7 +571,9 @@ export function SettingsView(): ReactElement {
     const provider = getProvider()
     if (typeof provider.deleteMemory !== 'function') return
     try {
-      await provider.deleteMemory(memoryId)
+      await provider.deleteMemory(memoryId, {
+        workspace: normalizeWorkspaceRoot(formWorkspaceRoot)
+      })
       setMemoryRecords((records) => records.filter((record) => record.id !== memoryId))
     } catch (error) {
       setRuntimeDiagnosticsNotice({
