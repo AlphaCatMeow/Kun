@@ -651,6 +651,31 @@ export type WorkflowNodeInputV1 = {
 }
 
 /**
+ * The value-type vocabulary the variable picker uses to badge a node's outputs.
+ * A trimmed analogue of Dify's VarType — only what our nodes actually emit. NOT
+ * persisted (never enters the settings schema); derived on the fly by
+ * describeNodeOutput. `object` is drillable (has children); `json` is an opaque
+ * blob the user dot-paths into manually; `any` is unknowable. Defer array[*]/file
+ * until a node actually produces them.
+ */
+export const WORKFLOW_VAR_TYPES = ['string', 'number', 'boolean', 'object', 'json', 'any'] as const
+export type WorkflowVarType = (typeof WORKFLOW_VAR_TYPES)[number]
+
+/**
+ * One advertised output field of a node, for the typed reference picker. `key` is
+ * a dot-path relative to the node's json (or the literal 'text'). Derived metadata
+ * only — see workflow-output-descriptors.ts. `children` cascades object types.
+ */
+export type WorkflowOutputVar = {
+  key: string
+  type: WorkflowVarType
+  /** Present only for object types; lets the picker drill in. */
+  children?: WorkflowOutputVar[]
+  /** Optional human label for the picker row. */
+  label?: string
+}
+
+/**
  * One typed input the caller supplies when starting a workflow. Drives the
  * "Run once" form, validates the /workflow/run + run_workflow input, and lifts
  * each value onto the run's initial payload.json by `key`.

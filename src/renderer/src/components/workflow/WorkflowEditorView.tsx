@@ -196,7 +196,12 @@ function WorkflowEditorInner({
     }
     return rfNodes
       .filter((node) => seen.has(node.id))
-      .map((node) => ({ id: node.data.node.id, name: node.data.node.name, type: node.data.node.type }))
+      .map((node) => ({
+        id: node.data.node.id,
+        name: node.data.node.name,
+        type: node.data.node.type,
+        node: node.data.node
+      }))
   }, [rfEdges, rfNodes, selectedNodeId])
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
