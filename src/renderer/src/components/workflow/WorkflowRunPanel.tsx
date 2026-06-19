@@ -4,13 +4,15 @@ import { Background, BackgroundVariant, ReactFlow, ReactFlowProvider } from '@xy
 import { Check, LayoutGrid, List as ListIcon, Loader2, UserCheck, X } from 'lucide-react'
 import {
   normalizeWorkflowSettings,
+  type WorkflowNodeRunResultV1,
   type WorkflowNodeRunStatus,
   type WorkflowRuntimeStatus,
   type WorkflowV1
 } from '@shared/app-settings'
 import { rendererRuntimeClient } from '../../agent/runtime-client'
-import { NODE_ICONS, WorkflowRunStatusContext, workflowNodeTypes } from './WorkflowNodes'
+import { WorkflowRunStatusContext, workflowNodeTypes } from './WorkflowNodes'
 import { toFlowEdges, toFlowNodes } from './workflow-types'
+import { WorkflowRunLogPanel } from './WorkflowRunLogPanel'
 
 const POLL_MS = 1500
 
@@ -122,6 +124,12 @@ export function WorkflowRunPanel({ enabled }: Props): ReactElement | null {
   if (!visible || !workflow) return null
 
   const lastRun = workflow.runs[workflow.runs.length - 1]
+  // Live per-node results during a run; fall back to the last persisted run when idle.
+  const liveResults = (shownId && status?.nodeResults?.[shownId]) || null
+  const logResults: Record<string, WorkflowNodeRunResultV1> =
+    liveResults && Object.keys(liveResults).length > 0
+      ? liveResults
+      : Object.fromEntries((lastRun?.nodeResults ?? []).map((result) => [result.nodeId, result]))
 
   return (
     <div className="ds-no-drag fixed right-0 top-0 z-[55] flex h-full w-[400px] flex-col border-l border-ds-border bg-ds-card shadow-xl">
@@ -232,28 +240,8 @@ export function WorkflowRunPanel({ enabled }: Props): ReactElement | null {
           </ReactFlowProvider>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-3">
-          {workflow.nodes.map((node) => {
-            const Icon = NODE_ICONS[node.type]
-            const result = lastRun?.nodeResults.find((entry) => entry.nodeId === node.id)
-            const detail = result?.error || result?.message || ''
-            return (
-              <div key={node.id} className="flex items-start gap-2 rounded-lg border border-ds-border px-2.5 py-2">
-                <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusDotClass(nodeStatus[node.id])}`} />
-                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
-                  <Icon className="h-3.5 w-3.5" strokeWidth={1.9} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] font-medium text-ds-ink">
-                    {node.name.trim() || t(`workflowNode_${node.type}`)}
-                  </div>
-                  {detail ? (
-                    <div className="mt-0.5 line-clamp-2 break-words text-[11px] leading-4 text-ds-faint">{detail}</div>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
+        <div className="min-h-0 flex-1">
+          <WorkflowRunLogPanel nodes={workflow.nodes} results={logResults} running={isRunning} hideHeader />
         </div>
       )}
     </div>

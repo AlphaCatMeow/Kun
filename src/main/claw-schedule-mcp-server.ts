@@ -248,9 +248,31 @@ export async function runClawScheduleMcpServerFromArgv(argv: string[]): Promise<
   // /workflow/internal/* endpoints.
   if (options.workflowBaseUrl) {
     const wf = { baseUrl: options.workflowBaseUrl, secret: options.workflowSecret }
+    // Snapshot the callable workflows at startup so the agent SEES them in the
+    // run_workflow tool schema and reaches for them naturally — without having to
+    // call list_workflows first. (Authoritative list is still list_workflows.)
+    let catalog = ''
+    try {
+      const result = await postJson(wf, '/workflow/internal/list', {})
+      const workflows = Array.isArray(result.workflows) ? result.workflows : []
+      if (workflows.length) {
+        catalog =
+          '\n\nWorkflows the user has saved (run by name; call list_workflows for the current list + inputs):\n' +
+          workflows
+            .map((item: { name?: unknown; description?: unknown }) => {
+              const name = typeof item.name === 'string' ? item.name : ''
+              const desc = typeof item.description === 'string' ? item.description : ''
+              return `- "${name}"${desc ? ` — ${desc}` : ''}`
+            })
+            .filter((line) => line !== '- ""')
+            .join('\n')
+      }
+    } catch {
+      /* ignore — list_workflows still works live */
+    }
     server.registerTool('list_workflows', {
       description:
-        'List the GUI workflows the user marked callable by the agent. Returns each workflow id, name, and a short description.'
+        'List the GUI "Create Loop" workflows the user marked callable by the agent. Returns each workflow id, name, a short description, and its required inputs. Check this whenever a request might be satisfied by a saved workflow.'
     }, async () => {
       try {
         const result = await postJson(wf, '/workflow/internal/list', {})
@@ -268,7 +290,8 @@ export async function runClawScheduleMcpServerFromArgv(argv: string[]): Promise<
 
     server.registerTool('run_workflow', {
       description:
-        "Run one of the user's GUI workflows by name (or id) and wait for it to finish. Call list_workflows first to see what is available. Returns the workflow's final output.",
+        "Run one of the user's saved \"Create Loop\" workflows by name (or id) and wait for it to finish; returns its final output. When the user's request matches a saved workflow below, prefer running it over doing the steps manually." +
+        catalog,
       inputSchema: {
         workflow: z.string().min(1).describe('Workflow name or id from list_workflows'),
         input: z.string().optional().describe('Optional input passed to the trigger; available to nodes as {{text}}'),
