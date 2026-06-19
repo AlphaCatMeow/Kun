@@ -1,10 +1,16 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { homedir } from 'node:os'
 import type { KunGuiApi } from '../shared/kun-gui-api'
+
+// The preload runs sandboxed (webPreferences.sandbox = true), so it cannot
+// require node built-ins like node:os. The home dir is passed in from the main
+// process via additionalArguments and read off process.argv instead.
+const HOME_DIR_ARG = '--kun-home-dir='
+const homeDirFromArgs =
+  process.argv.find((arg) => arg.startsWith(HOME_DIR_ARG))?.slice(HOME_DIR_ARG.length) ?? ''
 
 const api = {
   platform: process.platform,
-  homeDir: homedir(),
+  homeDir: homeDirFromArgs,
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (partial) =>
     ipcRenderer.invoke('settings:set', partial),

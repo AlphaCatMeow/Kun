@@ -1095,7 +1095,9 @@ function createWindow(options: { suppressInitialShow?: boolean } = {}): void {
       preload: preloadPath,
       contextIsolation: true,
       sandbox: true,
-      webviewTag: true
+      webviewTag: true,
+      // Pass the home dir to the sandboxed preload (it can't require node:os).
+      additionalArguments: [`--kun-home-dir=${homedir()}`]
     }
   })
   if (usesDesktopTitleBar) {
