@@ -1,4 +1,4 @@
-# DeepSeek GUI v0.2.11
+# Kun v0.2.11
 
 这一版带来三块面向“认真干活”的能力：为并行 Agent 准备的 Git worktree 池、用于代码导航的 LSP 工具，以及独立的记忆管理面板。同时 MCP、插件和 Kun 运行时也各有补强。
 
