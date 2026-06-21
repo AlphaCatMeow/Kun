@@ -79,6 +79,10 @@ export class UsageCounter {
       cacheHitTokens,
       cacheMissTokens,
       cacheHitRate,
+      cacheableTokenHitRate: snapshot.cacheableTokenHitRate,
+      totalInputTokenHitRate: snapshot.totalInputTokenHitRate,
+      cacheMissReasons: snapshot.cacheMissReasons,
+      cacheSuggestions: snapshot.cacheSuggestions,
       turns,
       costUsd,
       costCny,
@@ -152,6 +156,14 @@ function normalizeUsageSnapshot(snapshot: UsageSnapshot): UsageSnapshot {
     ...(cacheHitTokens !== undefined ? { cacheHitTokens } : {}),
     ...(cacheMissTokens !== undefined ? { cacheMissTokens } : {}),
     cacheHitRate: cacheHitTokens !== undefined && cacheTotal > 0 ? cacheHitTokens / cacheTotal : null,
+    ...(snapshot.cacheableTokenHitRate !== undefined
+      ? { cacheableTokenHitRate: snapshot.cacheableTokenHitRate }
+      : {}),
+    ...(snapshot.totalInputTokenHitRate !== undefined
+      ? { totalInputTokenHitRate: snapshot.totalInputTokenHitRate }
+      : {}),
+    ...(snapshot.cacheMissReasons ? { cacheMissReasons: [...snapshot.cacheMissReasons] } : {}),
+    ...(snapshot.cacheSuggestions ? { cacheSuggestions: [...snapshot.cacheSuggestions] } : {}),
     turns: Math.max(0, Math.floor(snapshot.turns)),
     ...(snapshot.costUsd !== undefined ? { costUsd: Math.max(0, snapshot.costUsd) } : {}),
     ...(snapshot.costCny !== undefined ? { costCny: Math.max(0, snapshot.costCny) } : {}),
