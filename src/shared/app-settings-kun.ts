@@ -432,6 +432,14 @@ export function mergeKunRuntimeSettings(
   })
   const nextModelProfiles = normalizeKunModelProfiles(current.modelProfiles, patch?.modelProfiles)
   const nextPort = normalizeKunLocalPort(patch?.port ?? current.port, DEFAULT_KUN_PORT)
+  // NOTE: approvalPolicy/sandboxMode are merged through verbatim from the patch.
+  // The unified 5-mode UI selector already resolves a mode to its concrete
+  // {approvalPolicy, sandboxMode} pair via kunToolPermissionModeSettings before
+  // dispatching the patch. We must NOT re-canonicalize here: the mode->settings
+  // mapping is lossy (only 5 of the 6x4 policy/sandbox combos are representable),
+  // so round-tripping would silently rewrite valid non-UI values — e.g. demote
+  // approvalPolicy 'never'/'suggest' to 'on-request', or escalate a 'read-only'/
+  // 'external-sandbox' sandbox to 'danger-full-access' — on every settings merge.
   return {
     ...current,
     ...(patch ?? {}),

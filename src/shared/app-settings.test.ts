@@ -33,6 +33,8 @@ import {
   normalizeAppSettings,
   parseClawUserPromptForDisplay,
   inferModelEndpointFormatFromUrl,
+  kunToolPermissionModeFromSettings,
+  kunToolPermissionModeSettings,
   normalizeScheduleSettings,
   resolveKunRuntimeSettings,
   resolveWriteInlineCompletionApiKey,
@@ -118,6 +120,42 @@ describe('kun defaults', () => {
   it('defaults sandbox mode to full access', () => {
     expect(defaultKunRuntimeSettings().sandboxMode).toBe(DEFAULT_SANDBOX_MODE)
     expect(defaultKunRuntimeSettings().sandboxMode).toBe('danger-full-access')
+  })
+
+  it('maps unified tool permission modes to approval and sandbox settings', () => {
+    expect(kunToolPermissionModeSettings('always-ask')).toEqual({
+      approvalPolicy: 'always',
+      sandboxMode: 'danger-full-access'
+    })
+    expect(kunToolPermissionModeSettings('read-only')).toEqual({
+      approvalPolicy: 'on-request',
+      sandboxMode: 'danger-full-access'
+    })
+    expect(kunToolPermissionModeSettings('sensitive-ask')).toEqual({
+      approvalPolicy: 'untrusted',
+      sandboxMode: 'danger-full-access'
+    })
+    expect(kunToolPermissionModeSettings('workspace-write')).toEqual({
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write'
+    })
+    expect(kunToolPermissionModeSettings('bypass')).toEqual({
+      approvalPolicy: 'auto',
+      sandboxMode: 'danger-full-access'
+    })
+    expect(kunToolPermissionModeFromSettings(defaultKunRuntimeSettings())).toBe('bypass')
+    expect(kunToolPermissionModeFromSettings({
+      approvalPolicy: 'always',
+      sandboxMode: 'danger-full-access'
+    })).toBe('always-ask')
+    expect(kunToolPermissionModeFromSettings({
+      approvalPolicy: 'untrusted',
+      sandboxMode: 'danger-full-access'
+    })).toBe('sensitive-ask')
+    expect(kunToolPermissionModeFromSettings({
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write'
+    })).toBe('workspace-write')
   })
 
   it('defaults token economy mode to off', () => {
@@ -508,6 +546,38 @@ describe('mergeKunRuntimeSettings', () => {
     expect(next.mcpSearch.topKMax).toBe(current.mcpSearch.topKMax)
   })
 
+  it('preserves workspace-write when normalizing unified tool permission settings', () => {
+    const current = defaultKunRuntimeSettings()
+    const next = mergeKunRuntimeSettings(current, {
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write'
+    })
+
+    expect(next.approvalPolicy).toBe('on-request')
+    expect(next.sandboxMode).toBe('workspace-write')
+    expect(kunToolPermissionModeFromSettings(next)).toBe('workspace-write')
+  })
+
+  it('preserves non-UI approval/sandbox combinations instead of canonicalizing them', () => {
+    // The unified 5-mode selector cannot represent every approvalPolicy/sandboxMode
+    // combination. mergeKunRuntimeSettings must NOT snap these to a canonical mode,
+    // otherwise it would silently weaken a user's saved security posture.
+    const current = defaultKunRuntimeSettings()
+
+    const neverReadOnly = mergeKunRuntimeSettings(current, {
+      approvalPolicy: 'never',
+      sandboxMode: 'read-only'
+    })
+    expect(neverReadOnly.approvalPolicy).toBe('never')
+    expect(neverReadOnly.sandboxMode).toBe('read-only')
+
+    const suggest = mergeKunRuntimeSettings(current, { approvalPolicy: 'suggest' })
+    expect(suggest.approvalPolicy).toBe('suggest')
+
+    const externalSandbox = mergeKunRuntimeSettings(current, { sandboxMode: 'external-sandbox' })
+    expect(externalSandbox.sandboxMode).toBe('external-sandbox')
+  })
+
   it('deep-merges advanced Kun settings', () => {
     const current = defaultKunRuntimeSettings()
     const next = mergeKunRuntimeSettings(current, {
@@ -773,6 +843,37 @@ describe('legacy Kun defaults migration', () => {
     }))
     expect('agentProvider' in normalized).toBe(false)
     expect('deepseek' in normalized).toBe(false)
+  })
+
+  it('keeps legacy workspace-write permissions during Kun migration', () => {
+    const normalized = normalizeAppSettings({
+      version: 1,
+      locale: 'zh',
+      theme: 'dark',
+      uiFontScale: 'small',
+      agentProvider: 'deepseek-runtime',
+      deepseek: {
+        binaryPath: '/usr/local/bin/deepseek',
+        port: 8787,
+        autoStart: false,
+        apiKey: 'sk-old',
+        baseUrl: 'https://api.deepseek.com',
+        runtimeToken: 'old-token',
+        extraCorsOrigins: [],
+        approvalPolicy: 'on-request',
+        sandboxMode: 'workspace-write'
+      },
+      workspaceRoot: '/tmp/legacy-workspace',
+      log: { enabled: true, retentionDays: 2 },
+      notifications: { turnComplete: true },
+      guiUpdate: { channel: 'frontier' },
+      claw: defaultClawSettings()
+    } as unknown as AppSettingsV1)
+
+    expect(normalized.agents.kun).toEqual(expect.objectContaining({
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write'
+    }))
   })
 
   it('moves the legacy local HTTP default port to the Kun default port', () => {
