@@ -11,6 +11,7 @@ import {
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
+  defaultTerminalSettings,
   migrateLegacyAppSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
@@ -124,6 +125,7 @@ describe('Kun single-agent regression', () => {
       claw: defaultClawSettings(),
       schedule: defaultScheduleSettings(),
       workflow: defaultWorkflowSettings(),
+      terminal: defaultTerminalSettings(),
       guiUpdate: { channel: 'stable' },
       codePromptPrefix: '',
       disabledSkillIds: []

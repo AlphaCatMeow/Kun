@@ -30,6 +30,7 @@ import { normalizeClawSettings } from './app-settings-claw'
 import { normalizeScheduleSettings } from './app-settings-schedule'
 import { normalizeWorkflowSettings } from './app-settings-workflow'
 import { normalizeWriteSettings } from './app-settings-write'
+import { normalizeTerminalSettings, type TerminalSettingsPatchV1 } from './app-settings-terminal'
 
 export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
   const migrated = shouldMigrateLegacySettings(settings)
@@ -45,6 +46,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     schedule?: ScheduleSettingsPatchV1
     workflow?: WorkflowSettingsPatchV1
     guiUpdate?: Partial<GuiUpdateConfigV1>
+    terminal?: TerminalSettingsPatchV1
   }
   const providerSettings = normalizeModelProviderSettings(maybeSettings.provider)
   const runtime = getKunRuntimeSettings(maybeSettings)
@@ -96,6 +98,7 @@ export function normalizeAppSettings(settings: AppSettingsV1): AppSettingsV1 {
     claw: normalizeClawSettings(maybeSettings.claw),
     schedule: normalizeScheduleSettings(maybeSettings.schedule),
     workflow: normalizeWorkflowSettings(maybeSettings.workflow),
+    terminal: normalizeTerminalSettings(maybeSettings.terminal),
     guiUpdate: {
       channel: normalizeGuiUpdateChannel(
         maybeSettings.guiUpdate?.channel ?? DEFAULT_GUI_UPDATE_CHANNEL

@@ -10,6 +10,7 @@ import {
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
+  defaultTerminalSettings,
   type AppSettingsV1
 } from '../../shared/app-settings'
 import { guiSkillRootsForRuntime, listGuiSkillRoots, listGuiSkills } from './skill-service'
@@ -230,6 +231,7 @@ describe('skill-service', () => {
       claw: defaultClawSettings(),
       schedule: defaultScheduleSettings(),
       workflow: defaultWorkflowSettings(),
+      terminal: defaultTerminalSettings(),
       guiUpdate: { channel: 'stable' },
       codePromptPrefix: '',
       disabledSkillIds: []

@@ -86,10 +86,29 @@ function resolveDefaultShell(): { file: string; args: string[] } {
   return { file: process.env.SHELL || fallback, args: [] }
 }
 
+function resolveLocale(): string {
+  if (process.env.LANG && process.env.LANG.includes('UTF-8')) return process.env.LANG
+  if (process.env.LC_ALL && process.env.LC_ALL.includes('UTF-8')) return process.env.LC_ALL
+  if (process.platform === 'darwin') return 'en_US.UTF-8'
+  if (process.platform === 'win32') return 'C.UTF-8'
+  return 'en_US.UTF-8'
+}
+
 function buildShellEnv(): NodeJS.ProcessEnv {
   // xterm-256color matches what xterm.js advertises and keeps color-capable
   // programs (ls, git, etc.) emitting escape codes.
-  return { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
+  // LANG/LC_ALL ensure the child shell uses a UTF-8 locale so that CJK
+  // output (echo, git log, cat, etc.) is not garbled. Electron launched
+  // from Finder/Dock does not inherit the login-shell locale that
+  // ~/.zprofile/~/.zshrc would normally set.
+  const locale = resolveLocale()
+  return {
+    ...process.env,
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    LANG: locale,
+    LC_ALL: locale
+  }
 }
 
 function pushToRingBuffer(session: TerminalSession, chunk: string): void {

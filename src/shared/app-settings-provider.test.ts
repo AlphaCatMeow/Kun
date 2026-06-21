@@ -17,6 +17,7 @@ import {
   modelProviderTokenPlanProfile,
   defaultScheduleSettings,
   defaultWorkflowSettings,
+  defaultTerminalSettings,
   defaultWriteSettings,
   listMusicGenerationProviderProfiles,
   listSpeechToTextProviderProfiles,
@@ -74,6 +75,7 @@ function settings(): AppSettingsV1 {
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
+    terminal: defaultTerminalSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: '',
     disabledSkillIds: []

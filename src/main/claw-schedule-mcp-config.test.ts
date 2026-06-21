@@ -22,6 +22,7 @@ import {
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
+  defaultTerminalSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
 
@@ -56,6 +57,7 @@ function createSettings(patch: Partial<AppSettingsV1['schedule']['internal']> = 
       }
     },
     workflow: defaultWorkflowSettings(),
+    terminal: defaultTerminalSettings(),
     guiUpdate: {
       channel: 'stable'
     },

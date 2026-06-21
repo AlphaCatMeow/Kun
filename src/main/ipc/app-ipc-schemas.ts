@@ -535,6 +535,34 @@ const writeSettingsPatchSchema = z.object({
   agentPresets: z.array(writeAgentPresetSchema).max(24).optional()
 }).strict()
 
+const terminalColorPatchSchema = z.object({
+  colorMode: z.enum(['none', 'custom']).optional(),
+  foreground: z.string().max(64).optional(),
+  background: z.string().max(64).optional(),
+  cursor: z.string().max(64).optional(),
+  selectionBackground: z.string().max(64).optional(),
+  black: z.string().max(64).optional(),
+  red: z.string().max(64).optional(),
+  green: z.string().max(64).optional(),
+  yellow: z.string().max(64).optional(),
+  blue: z.string().max(64).optional(),
+  magenta: z.string().max(64).optional(),
+  cyan: z.string().max(64).optional(),
+  white: z.string().max(64).optional(),
+  brightBlack: z.string().max(64).optional(),
+  brightRed: z.string().max(64).optional(),
+  brightGreen: z.string().max(64).optional(),
+  brightYellow: z.string().max(64).optional(),
+  brightBlue: z.string().max(64).optional(),
+  brightMagenta: z.string().max(64).optional(),
+  brightCyan: z.string().max(64).optional(),
+  brightWhite: z.string().max(64).optional()
+}).strict()
+
+const terminalSettingsPatchSchema = z.object({
+  colors: terminalColorPatchSchema.optional()
+}).strict()
+
 const clawSkillPatchSchema = z.object({
   defaultNames: z.array(trimmedString(128)).max(128).optional(),
   extraDirs: z.array(trimmedString(MAX_PATH_LENGTH)).max(128).optional(),
@@ -1255,6 +1283,7 @@ const settingsPatchObjectSchema = z.object({
   claw: clawSettingsPatchSchema.optional(),
   schedule: scheduleSettingsPatchSchema.optional(),
   workflow: workflowSettingsPatchSchema.optional(),
+  terminal: terminalSettingsPatchSchema.optional(),
   guiUpdate: z.object({
     channel: z.enum(GUI_UPDATE_CHANNELS).optional()
   }).strict().optional(),

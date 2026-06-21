@@ -13,6 +13,7 @@ import {
   defaultScheduleSettings,
   defaultWorkflowSettings,
   defaultWriteSettings,
+  defaultTerminalSettings,
   type AppSettingsV1
 } from '../shared/app-settings'
 import { KunConfigSchema } from '../../kun/src/config/kun-config.js'
@@ -50,6 +51,7 @@ function createSettings(binaryPath: string): AppSettingsV1 {
     claw: defaultClawSettings(),
     schedule: defaultScheduleSettings(),
     workflow: defaultWorkflowSettings(),
+    terminal: defaultTerminalSettings(),
     guiUpdate: { channel: 'stable' },
     codePromptPrefix: '',
     disabledSkillIds: []

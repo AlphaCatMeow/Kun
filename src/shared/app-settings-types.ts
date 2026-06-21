@@ -1555,6 +1555,41 @@ export type GuiUpdateConfigV1 = {
   channel: GuiUpdateChannel
 }
 
+export type TerminalColorMode = 'none' | 'custom'
+
+export type TerminalColorSettingsV1 = {
+  /** 'none' = monochrome (all ANSI colors map to foreground, no red commands); 'custom' = use user-defined colors. */
+  colorMode: TerminalColorMode
+  foreground: string
+  background: string
+  cursor: string
+  selectionBackground: string
+  black: string
+  red: string
+  green: string
+  yellow: string
+  blue: string
+  magenta: string
+  cyan: string
+  white: string
+  brightBlack: string
+  brightRed: string
+  brightGreen: string
+  brightYellow: string
+  brightBlue: string
+  brightMagenta: string
+  brightCyan: string
+  brightWhite: string
+}
+
+export type TerminalSettingsV1 = {
+  colors: TerminalColorSettingsV1
+}
+
+export type TerminalSettingsPatchV1 = {
+  colors?: Partial<TerminalColorSettingsV1>
+}
+
 export type AppSettingsV1 = {
   version: 1
   locale: 'en' | 'zh'
@@ -1573,13 +1608,14 @@ export type AppSettingsV1 = {
   schedule: ScheduleSettingsV1
   workflow: WorkflowSettingsV1
   guiUpdate: GuiUpdateConfigV1
+  terminal: TerminalSettingsV1
   codePromptPrefix: string
   /** User-disabled skill IDs. Disabled skills are hidden from command surfaces. */
   disabledSkillIds: string[]
 }
 
 export type AppSettingsPatch = Partial<
-  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate'>
+  Omit<AppSettingsV1, 'provider' | 'agents' | 'log' | 'notifications' | 'appBehavior' | 'keyboardShortcuts' | 'write' | 'claw' | 'schedule' | 'workflow' | 'guiUpdate' | 'terminal'>
 > & {
   provider?: ModelProviderSettingsPatchV1
   agents?: KunSettingsEnvelopePatchV1
@@ -1592,4 +1628,5 @@ export type AppSettingsPatch = Partial<
   schedule?: ScheduleSettingsPatchV1
   workflow?: WorkflowSettingsPatchV1
   guiUpdate?: Partial<GuiUpdateConfigV1>
+  terminal?: TerminalSettingsPatchV1
 }
