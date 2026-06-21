@@ -9,7 +9,7 @@
   min-height: 100%;
   /* Notion-like reading column: ~720px of text, the rest of the surface
      stays clickable padding so the caret can always be placed. */
-  padding: clamp(40px, 7vh, 72px) max(28px, calc((100% - 720px) / 2)) 120px;
+  padding: clamp(40px, 7vh, 72px) 28px 120px;
   outline: none;
   color: var(--ds-text);
   caret-color: var(--ds-text);
@@ -18,6 +18,12 @@
   font-size: var(--write-editor-font-size, 16px);
   line-height: var(--write-editor-line-height, 1.75);
   word-break: break-word;
+}
+
+.write-rich-editor > * {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .write-rich-editor ::selection {
