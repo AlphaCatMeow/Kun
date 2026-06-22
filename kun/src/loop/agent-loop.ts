@@ -82,6 +82,7 @@ import { ToolStormBreaker, type ToolStormBreakerOptions } from './tool-storm-bre
 import { healLoadedHistoryItems } from './history-healing.js'
 import { repairDispatchToolArguments } from './tool-call-repair.js'
 import { CREATE_PLAN_TOOL_NAME } from '../adapters/tool/create-plan-tool.js'
+import { guiPlanWorkspaceMatches } from '../shared/gui-plan.js'
 import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../adapters/tool/goal-tools.js'
 import { TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME } from '../adapters/tool/todo-tools.js'
 import { shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
@@ -235,6 +236,21 @@ export function resolvePlanModeToolSpecs(
   return options.stepIndex === 0
     ? toolSpecs.filter((tool) => tool.name === planTool || readOnly.has(tool.name))
     : toolSpecs.filter((tool) => tool.name === planTool)
+}
+
+/**
+ * A GUI plan context whose workspace doesn't match the thread it runs in is
+ * stale — e.g. carried in by a conversation fork (the fork keeps the source
+ * thread's workspace, but the plan context can point elsewhere). Such a context
+ * must be ignored — running the turn as a normal agent turn — instead of being
+ * passed to create_plan, which hard-fails on the workspace mismatch, or forcing
+ * a plan-only tool set the forked history can't satisfy.
+ */
+export function isStalePlanContext(
+  planContext: { workspaceRoot: string } | undefined,
+  workspace: string
+): boolean {
+  return planContext ? !guiPlanWorkspaceMatches(workspace, planContext.workspaceRoot) : false
 }
 
 export function buildRuntimeContextInstruction(input: {
@@ -1060,9 +1076,15 @@ export class AgentLoop {
       this.opts.turns.getTurn(threadId, turnId)
     ])
     await this.recordPipelineStage(threadId, turnId, 'input_received', { stepIndex })
-    const activePlanContext = turn?.guiPlan
+    const candidatePlanContext = turn?.guiPlan
       ? { ...turn.guiPlan, turnId }
       : this.opts.activePlanContext
+    // A plan context whose workspace doesn't match this thread is stale — e.g.
+    // carried in by a conversation fork. Drop it so the turn runs as a normal
+    // agent turn instead of hard-failing create_plan on the workspace mismatch
+    // or forcing a plan-only tool set the cloned history can't satisfy.
+    const planContextStale = isStalePlanContext(candidatePlanContext, thread?.workspace ?? '')
+    const activePlanContext = planContextStale ? undefined : candidatePlanContext
     const budgetGate = await this.checkBudgetGate(thread, threadId, turnId)
     if (budgetGate === 'blocked') return 'stop'
     const loadedItems = await this.opts.sessionStore.loadItems(threadId)
@@ -1137,7 +1159,7 @@ export class AgentLoop {
       prompt: turn?.prompt ?? '',
       workspace: thread?.workspace ?? ''
     })
-    const planTurnActive = effectiveMode === 'plan' || Boolean(activePlanContext)
+    const planTurnActive = !planContextStale && (effectiveMode === 'plan' || Boolean(activePlanContext))
     const activeGoalInstruction = planTurnActive
       ? null
       : goalContinuationInstruction(thread?.goal)
