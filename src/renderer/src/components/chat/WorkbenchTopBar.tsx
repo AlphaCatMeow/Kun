@@ -11,7 +11,7 @@ import {
   Download,
   ExternalLink,
   FileEdit,
-  Files,
+  Folders,
   FolderOpen,
   Globe2,
   ListTodo,
@@ -405,7 +405,7 @@ export function WorkbenchTopBar({
           aria-pressed={fileTreeOpen}
           title={t('rightPanelFiles')}
         >
-          <Files className={TOPBAR_ICON_CLASS} strokeWidth={1.75} />
+          <Folders className={TOPBAR_ICON_CLASS} strokeWidth={1.75} />
         </button>
       ) : null}
     </div>
