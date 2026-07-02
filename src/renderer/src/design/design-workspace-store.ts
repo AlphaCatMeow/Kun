@@ -574,6 +574,25 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
       persistIndex()
     },
 
+    setArtifactPreviewStatus: (artifactId, status) => {
+      let changedAny = false
+      set((state) =>
+        applyToActiveDoc(state, (artifacts) =>
+          artifacts.map((item) => {
+            if (item.id !== artifactId || item.kind !== 'html' || item.previewStatus === status) {
+              return item
+            }
+            changedAny = true
+            return { ...item, previewStatus: status }
+          })
+        )
+      )
+      if (!changedAny) return
+      const updated = get().artifacts.find((item) => item.id === artifactId)
+      if (updated) persistArtifactMeta(get().workspaceRoot, updated)
+      persistIndex()
+    },
+
     setDirectionStatus: (directionId, status) => {
       const id = directionId.trim()
       if (!id) return

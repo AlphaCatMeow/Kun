@@ -1,6 +1,13 @@
 import { useCanvasShapeStore } from './canvas-shape-store'
 import { useCanvasViewportStore } from './canvas-viewport-store'
-import { createDefaultShape, type CanvasShape, type ShapeType } from './canvas-types'
+import {
+  createDefaultShape,
+  shapeGeometry,
+  type CanvasShape,
+  type Rect,
+  type ShapeType
+} from './canvas-types'
+import { placeRectInViewportAvoiding } from './canvas-placement'
 import { useDesignSystemStore } from './design-system-store'
 import { resolveTokenPatch, type ComponentDef, type DesignToken, type TokenProp } from './design-system-types'
 import type { OpError } from './shape-ops'
@@ -386,8 +393,13 @@ function createTemplateBoard(
   const viewport = useCanvasViewportStore.getState().vbox
   const width = positive(op.width) ?? 1580
   const height = positive(op.height) ?? 880
-  const x = finite(op.x) ?? Math.round(viewport.x + 80)
-  const y = finite(op.y) ?? Math.round(viewport.y + 80)
+  const autoRect = placeRectInViewportAvoiding(
+    { width, height },
+    viewport,
+    rootContentRects()
+  )
+  const x = finite(op.x) ?? autoRect.x
+  const y = finite(op.y) ?? autoRect.y
   const board = addShape('frame', {
     name: `${foundation.name} Style Kit`,
     x,
@@ -510,6 +522,17 @@ function createTemplateBoard(
   componentCard(foundation, 'Label Button', col3 + 198, top + 580, 172, 260, board, affectedIds, (parent) => {
     button(foundation, 'Label', col3 + 226, top + 710, 'brand/primary', 'brand/tertiary', parent, affectedIds)
   })
+}
+
+function rootContentRects(): Rect[] {
+  const { document } = useCanvasShapeStore.getState()
+  const root = document.objects[document.rootId]
+  if (!root) return []
+  return root.children
+    .map((id) => document.objects[id])
+    .filter((shape): shape is CanvasShape => Boolean(shape) && shape.visible !== false)
+    .map((shape) => shapeGeometry(shape).selrect)
+    .filter((rect) => rect.width > 0 && rect.height > 0)
 }
 
 function templateBadgeLabel(foundation: TemplateFoundation): string {

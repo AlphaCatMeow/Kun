@@ -1,13 +1,32 @@
 import { memo } from 'react'
 import type { CanvasShape } from '../../../../design/canvas/canvas-types'
 import { isHtmlFrame } from '../../../../design/canvas/canvas-types'
+import { useDesignWorkspaceStore } from '../../../../design/design-workspace-store'
 import { ShapeDispatcher } from './ShapeDispatcher'
 import { ShapePaintDefs, primaryFillPaint } from './shape-paint'
 
-function HtmlFramePlaceholder({ shape }: { shape: CanvasShape }) {
+type HtmlFramePreviewStatus = 'pending' | 'ready' | 'error' | undefined
+type HtmlFrameParallelStatus = 'queued' | 'running' | 'done' | 'failed' | undefined
+
+export function isHtmlFramePreviewGenerating(
+  previewStatus: HtmlFramePreviewStatus,
+  parallelStatus: HtmlFrameParallelStatus
+): boolean {
+  return previewStatus === 'pending' || parallelStatus === 'queued' || parallelStatus === 'running'
+}
+
+function HtmlFramePlaceholder({
+  shape,
+  generating
+}: {
+  shape: CanvasShape
+  generating: boolean
+}) {
   return (
     <>
-      <rect x={0} y={0} width={shape.width} height={shape.height} fill="#ffffff" rx={4} />
+      {generating ? null : (
+        <rect x={0} y={0} width={shape.width} height={shape.height} fill="#ffffff" rx={4} />
+      )}
       <rect
         x={0}
         y={0}
@@ -30,8 +49,22 @@ function FrameShapeInner({
   shape: CanvasShape
   objects: Record<string, CanvasShape>
 }) {
+  const previewStatus = useDesignWorkspaceStore((s) => {
+    if (!isHtmlFrame(shape) || !shape.htmlArtifactId) return undefined
+    return s.artifacts.find((artifact) => artifact.id === shape.htmlArtifactId)?.previewStatus
+  })
+  const parallelStatus = useDesignWorkspaceStore((s) => {
+    if (!isHtmlFrame(shape) || !shape.htmlArtifactId) return undefined
+    return s.parallelPageStates[shape.htmlArtifactId]?.status
+  })
+
   if (isHtmlFrame(shape)) {
-    return <HtmlFramePlaceholder shape={shape} />
+    return (
+      <HtmlFramePlaceholder
+        shape={shape}
+        generating={isHtmlFramePreviewGenerating(previewStatus, parallelStatus)}
+      />
+    )
   }
 
   const { fill, fillOpacity } = primaryFillPaint(shape)

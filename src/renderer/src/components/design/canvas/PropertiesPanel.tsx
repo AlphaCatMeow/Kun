@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type ReactElement, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import {
   AlignHorizontalJustifyCenter,
   AlignHorizontalJustifyEnd,
@@ -13,6 +13,7 @@ import {
   PinOff,
   Play,
   Rows3,
+  SlidersHorizontal,
   Smartphone,
   Sparkles,
   Tablet,
@@ -410,6 +411,30 @@ export function propertiesPanelShellClass(surface: 'design' | 'code'): string {
     : 'ds-no-drag absolute bottom-[104px] right-[76px] top-[72px] z-40 flex w-[252px] flex-col overflow-hidden rounded-[18px] border border-ds-border-muted bg-white/82 text-[12px] text-ds-ink shadow-[0_18px_48px_rgba(20,47,95,0.12)] backdrop-blur-2xl dark:bg-ds-canvas/88 max-lg:bottom-[116px] max-lg:top-[76px]'
 }
 
+export function shouldShowImageAnnotationAction(
+  surface: 'design' | 'code',
+  filledImageSelected: boolean
+): boolean {
+  return (surface === 'design' || surface === 'code') && filledImageSelected
+}
+
+export function propertiesPanelTriggerClass(surface: 'design' | 'code'): string {
+  return surface === 'code'
+    ? 'ds-no-drag absolute right-[64px] top-[60px] z-40 inline-flex h-9 max-w-[calc(100%-80px)] items-center gap-2 rounded-full border border-ds-border-muted bg-white/88 px-3 text-[12px] font-medium text-ds-muted shadow-[0_10px_28px_rgba(20,47,95,0.1)] backdrop-blur-2xl transition hover:bg-white hover:text-ds-ink dark:bg-ds-canvas/90 dark:hover:bg-ds-canvas'
+    : 'ds-no-drag absolute right-[76px] top-[72px] z-40 inline-flex h-9 items-center gap-2 rounded-full border border-ds-border-muted bg-white/82 px-3 text-[12px] font-medium text-ds-muted shadow-[0_12px_32px_rgba(20,47,95,0.11)] backdrop-blur-2xl transition hover:bg-white/95 hover:text-ds-ink dark:bg-ds-canvas/88 dark:hover:bg-ds-canvas max-lg:top-[76px]'
+}
+
+export function nextInspectorOpenForSelection(
+  previousSelectionKey: string,
+  nextSelectionKey: string,
+  currentOpen: boolean,
+  pinned: boolean
+): boolean {
+  if (!nextSelectionKey) return false
+  if (previousSelectionKey === nextSelectionKey) return currentOpen
+  return pinned
+}
+
 function PropertiesPanelInner({ surface = 'design', onImplementDesign }: Props): ReactElement | null {
   const { t } = useTranslation('common')
   const selectedIds = useCanvasSelectionStore((s) => s.selectedIds)
@@ -418,6 +443,8 @@ function PropertiesPanelInner({ surface = 'design', onImplementDesign }: Props):
   const setPinned = useDesignWorkspaceStore((s) => s.setCanvasInspectorPinned)
   const setDesignIntentMode = useDesignWorkspaceStore((s) => s.setDesignIntentMode)
   const setCanvasAssistantOpen = useDesignWorkspaceStore((s) => s.setCanvasAssistantOpen)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const lastSelectionKeyRef = useRef('')
 
   const ids = useMemo(
     () => filterEditableShapeIds(document, selectedIds),
@@ -431,6 +458,21 @@ function PropertiesPanelInner({ surface = 'design', onImplementDesign }: Props):
     () => ids.map((id) => document.objects[id]).filter((s): s is CanvasShape => Boolean(s)),
     [ids, document]
   )
+  const selectionKey = useMemo(() => ids.slice().sort().join('\u0000'), [ids])
+
+  useEffect(() => {
+    if (!selectionKey) {
+      lastSelectionKeyRef.current = ''
+      setInspectorOpen(false)
+      return
+    }
+    if (lastSelectionKeyRef.current === selectionKey) return
+    const previousSelectionKey = lastSelectionKeyRef.current
+    lastSelectionKeyRef.current = selectionKey
+    setInspectorOpen((open) =>
+      nextInspectorOpenForSelection(previousSelectionKey, selectionKey, open, pinned)
+    )
+  }, [pinned, selectionKey])
 
   const updateAll = useCallback(
     (label: string, patch: Partial<CanvasShape>) => commitUpdate(label, ids, patch),
@@ -458,6 +500,26 @@ function PropertiesPanelInner({ surface = 'design', onImplementDesign }: Props):
   if (shapes.length === 0) return null
 
   const shellClass = propertiesPanelShellClass(surface)
+  const triggerLabel = t('canvasInspectorTitle', 'Properties')
+
+  if (!inspectorOpen) {
+    return (
+      <button
+        type="button"
+        onClick={() => setInspectorOpen(true)}
+        className={propertiesPanelTriggerClass(surface)}
+        title={triggerLabel}
+        aria-label={triggerLabel}
+        data-canvas-inspector-trigger={surface}
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+        <span className="min-w-0 truncate">
+          {triggerLabel}
+          {shapes.length > 1 ? <span className="ml-1 text-ds-faint">· {shapes.length}</span> : null}
+        </span>
+      </button>
+    )
+  }
 
   const renderShell = (children: ReactNode): ReactElement => (
     <aside className={shellClass} data-canvas-inspector-surface={surface}>
@@ -680,7 +742,7 @@ function PropertiesPanelInner({ surface = 'design', onImplementDesign }: Props):
       )}
 
       {/* Annotate-to-edit — draw markup on a filled picture, agent applies it. */}
-      {surface === 'design' && singleFilledImage && (
+      {shouldShowImageAnnotationAction(surface, Boolean(singleFilledImage)) && singleFilledImage && (
         <Section title={t('canvasInspectorAnnotate', 'AI 修改图片')}>
           <button
             type="button"

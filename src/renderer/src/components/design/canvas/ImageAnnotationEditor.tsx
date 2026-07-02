@@ -58,6 +58,15 @@ const TOOLS: { tool: AnnotationTool; label: string; Icon: typeof Pencil }[] = [
   { tool: 'text', label: '文字', Icon: Type }
 ]
 
+export const IMAGE_ANNOTATION_ROOT_CLASS =
+  'ds-no-drag fixed inset-0 z-[200] flex flex-col bg-black/75 backdrop-blur-sm'
+
+export const IMAGE_ANNOTATION_TOP_BAR_CLASS =
+  'ds-drag flex shrink-0 items-center justify-between gap-3 py-3 pr-5 text-white'
+
+export const IMAGE_ANNOTATION_INSTRUCTION_INPUT_CLASS =
+  'ds-no-drag relative z-10 w-[min(560px,calc(100vw-3rem))] appearance-none rounded-full border border-white/25 bg-white/10 px-4 py-2.5 text-[13px] text-white caret-white outline-none transition placeholder:text-white/55 focus:border-white/55 focus:bg-white/15 disabled:cursor-wait disabled:opacity-60'
+
 function drawArrowhead(
   ctx: CanvasRenderingContext2D,
   from: Point,
@@ -322,9 +331,12 @@ export function ImageAnnotationEditor({
   const canApply = ops.length > 0 || Boolean(dragRef.current) || instruction.trim().length > 0
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col bg-black/75 backdrop-blur-sm">
+    <div className={IMAGE_ANNOTATION_ROOT_CLASS}>
       {/* Top bar */}
-      <div className="flex shrink-0 items-center justify-between gap-3 px-5 py-3 text-white">
+      <div
+        className={IMAGE_ANNOTATION_TOP_BAR_CLASS}
+        style={{ paddingLeft: 'calc(var(--ds-window-controls-safe-inset) + 1.25rem)' }}
+      >
         <div className="flex min-w-0 items-center gap-2">
           <Pencil className="h-4 w-4 shrink-0 text-white/80" strokeWidth={1.9} />
           <span className="min-w-0 truncate text-[13px] font-semibold">
@@ -438,13 +450,13 @@ export function ImageAnnotationEditor({
       </div>
 
       {/* Bottom action bar */}
-      <div className="flex shrink-0 flex-col items-center gap-2.5 px-6 pb-5 pt-1">
+      <div className="relative z-10 flex shrink-0 flex-col items-center gap-2.5 px-6 pb-5 pt-1">
         <input
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
           placeholder="补充说明（可选）：例如 把音符改成闪电"
           disabled={busy}
-          className="w-[min(560px,calc(100vw-3rem))] rounded-full border border-white/20 bg-white/12 px-4 py-2.5 text-[13px] text-white outline-none transition placeholder:text-white/45 focus:border-white/45"
+          className={IMAGE_ANNOTATION_INSTRUCTION_INPUT_CLASS}
         />
         <div className="flex items-center gap-3">
           <button

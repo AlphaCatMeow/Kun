@@ -111,6 +111,11 @@ export type DesignWorkspaceState = {
   renameArtifact: (artifactId: string, title: string) => void
   /** Overwrite a version's summary with the agent's actual end-of-turn description. */
   setVersionSummary: (artifactId: string, versionId: string, summary: string) => void
+  /** Update renderer preview lifecycle for an HTML artifact. */
+  setArtifactPreviewStatus: (
+    artifactId: string,
+    status: NonNullable<DesignArtifact['previewStatus']>
+  ) => void
   /** Accept/archive a Stitch-style design direction and persist every screen in it. */
   setDirectionStatus: (directionId: string, status: DesignDirectionStatus) => void
   updateArtifactNode: (artifactId: string, patch: Partial<DesignArtifactNode>) => void

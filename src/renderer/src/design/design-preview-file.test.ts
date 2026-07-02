@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { WorkspaceFileChangePayload, WorkspaceFileWatchResult } from '@shared/workspace-file'
 import {
+  buildDesignPreviewSkeleton,
+  isDesignPreviewSkeleton,
   prepareDesignPreviewFile,
   startDesignHtmlPreviewWatch
 } from './design-preview-file'
@@ -30,6 +32,11 @@ function createWatchApi(result: WorkspaceFileWatchResult | Promise<WorkspaceFile
 }
 
 describe('design preview file helpers', () => {
+  it('recognizes only Kun preview skeleton content', () => {
+    expect(isDesignPreviewSkeleton(buildDesignPreviewSkeleton('.kun-design/new/v1.html'))).toBe(true)
+    expect(isDesignPreviewSkeleton('<!doctype html><html><body><h1>Real page</h1></body></html>')).toBe(false)
+  })
+
   it('creates a visible skeleton for a new HTML turn before sending', async () => {
     const writeWorkspaceFile = vi.fn(async () => ({
       ok: true as const,
@@ -92,17 +99,19 @@ describe('design preview file helpers', () => {
       ok: true,
       watchId: 'watch-1',
       path: '/workspace/.kun-design/screen/v1.html',
-      content: '<html></html>',
-      size: 13,
+      content: buildDesignPreviewSkeleton('.kun-design/screen/v1.html'),
+      size: buildDesignPreviewSkeleton('.kun-design/screen/v1.html').length,
       truncated: false,
       startedAt: '2026-06-21T00:00:00.000Z'
     })
     const onRevision = vi.fn()
+    const onSkeletonChange = vi.fn()
     const dispose = startDesignHtmlPreviewWatch({
       api,
       workspaceRoot: '/workspace',
       path: '.kun-design/screen/v1.html',
       onRevision,
+      onSkeletonChange,
       onError: vi.fn()
     })
     await flushPromises()
@@ -131,6 +140,9 @@ describe('design preview file helpers', () => {
     expect(onRevision).toHaveBeenCalledTimes(2)
     expect(onRevision).toHaveBeenNthCalledWith(1, 1)
     expect(onRevision).toHaveBeenNthCalledWith(2, 2)
+    expect(onSkeletonChange).toHaveBeenCalledTimes(2)
+    expect(onSkeletonChange).toHaveBeenNthCalledWith(1, true)
+    expect(onSkeletonChange).toHaveBeenNthCalledWith(2, false)
 
     dispose()
     expect(off).toHaveBeenCalled()

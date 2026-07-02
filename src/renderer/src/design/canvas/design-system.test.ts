@@ -3,10 +3,11 @@ import { executeOps } from './shape-ops'
 import { useCanvasShapeStore } from './canvas-shape-store'
 import { useCanvasUndoStore } from './canvas-undo-store'
 import { useCanvasSelectionStore } from './canvas-selection-store'
+import { useCanvasViewportStore } from './canvas-viewport-store'
 import { useDesignSystemStore } from './design-system-store'
 import { useDesignWorkspaceStore } from '../design-workspace-store'
 import { createEmptyDocument, type CanvasShape } from './canvas-types'
-import { createDefaultShape } from './canvas-types'
+import { createDefaultShape, shapeGeometry, type Rect } from './canvas-types'
 import { takeLastLintFindings } from './design-lint'
 import { resolveTokenPatch } from './design-system-types'
 
@@ -14,6 +15,7 @@ beforeEach(() => {
   useCanvasShapeStore.getState().loadDocument(createEmptyDocument())
   useCanvasUndoStore.getState().clear()
   useCanvasSelectionStore.getState().clearSelection()
+  useCanvasViewportStore.getState().resetView()
   useDesignSystemStore.getState().resetSystem()
   useDesignWorkspaceStore.setState({ designContext: { designTarget: 'web' } })
 })
@@ -21,6 +23,15 @@ beforeEach(() => {
 function addRect(): string {
   const r = executeOps([{ op: 'add', shape: { type: 'rect', x: 0, y: 0, width: 50, height: 50 } }])
   return r.affectedIds[0]
+}
+
+function rectsOverlap(a: Rect, b: Rect): boolean {
+  return !(
+    a.x + a.width <= b.x ||
+    b.x + b.width <= a.x ||
+    a.y + a.height <= b.y ||
+    b.y + b.height <= a.y
+  )
 }
 
 describe('define-token', () => {
@@ -91,6 +102,39 @@ describe('design-system-template', () => {
     const shapes = Object.values(useCanvasShapeStore.getState().document.objects)
     expect(shapes.some((shape) => shape.name.includes('IKUN World Style Kit'))).toBe(true)
     expect(shapes.some((shape) => shape.tokenBindings?.fill === 'brand/primary')).toBe(true)
+  })
+
+  it('auto-places a style-kit board away from an existing image when coordinates are omitted', () => {
+    useCanvasViewportStore.getState().setVbox({ x: 0, y: 0, width: 2200, height: 1400 })
+    const existing = executeOps([
+      {
+        op: 'add',
+        shape: {
+          type: 'image',
+          name: 'Existing design reference',
+          x: 310,
+          y: 260,
+          width: 1580,
+          height: 880,
+          imageUrl: '.deepseekgui-images/existing.png'
+        }
+      }
+    ]).affectedIds[0]
+
+    const r = executeOps([
+      {
+        op: 'design-system-template',
+        operation: 'create',
+        name: 'Placed Kit',
+        seedColor: '#2563EB'
+      }
+    ])
+
+    expect(r.ok).toBe(true)
+    const objects = useCanvasShapeStore.getState().document.objects
+    const board = Object.values(objects).find((shape) => shape.name === 'Placed Kit Style Kit')
+    expect(board).toBeDefined()
+    expect(rectsOverlap(shapeGeometry(objects[existing]).selrect, shapeGeometry(board!).selrect)).toBe(false)
   })
 
   it('creates paired light and dark style-kit boards with namespaced tokens', () => {

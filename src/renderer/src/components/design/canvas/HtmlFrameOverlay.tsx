@@ -76,6 +76,10 @@ function qualityFindingLabel(severity: DesignHtmlQualityFinding['severity']): st
   return 'note'
 }
 
+export function shouldRenderHtmlFrameWebview(fileUrl: string, skeletonPreview: boolean): boolean {
+  return Boolean(fileUrl) && !skeletonPreview
+}
+
 /**
  * Runs inside the live webview to locate the section the agent just wrote: the
  * LAST element tagged `data-ds-section` (sections are written top-to-bottom), or
@@ -147,6 +151,7 @@ function ScreenOverlayInner({
   const [fileUrl, setFileUrl] = useState('')
   const [revision, setRevision] = useState(0)
   const [previewError, setPreviewError] = useState('')
+  const [skeletonPreview, setSkeletonPreview] = useState(false)
   const [selectedElementRect, setSelectedElementRect] = useState<{
     left: number
     top: number
@@ -178,6 +183,7 @@ function ScreenOverlayInner({
     shape.htmlArtifactId ? s.parallelPageStates[shape.htmlArtifactId] : undefined
   )
   const setFileError = useDesignWorkspaceStore((s) => s.setFileError)
+  const setArtifactPreviewStatus = useDesignWorkspaceStore((s) => s.setArtifactPreviewStatus)
 
   const canvasWidth = Math.max(1, shape.width)
   const canvasHeight = Math.max(1, shape.height)
@@ -190,12 +196,14 @@ function ScreenOverlayInner({
     setFileUrl('')
     setRevision(0)
     setPreviewError('')
+    setSkeletonPreview(artifact?.previewStatus === 'pending')
     if (!artifactRelativePath || artifactKind !== 'html' || !workspaceRoot) return
     if (typeof window.kunGui?.authorizeWritePrototype !== 'function') return
 
     const reportError = (message: string): void => {
       setPreviewError(message)
       setFileError(message)
+      if (artifact?.id) setArtifactPreviewStatus(artifact.id, 'error')
     }
 
     const tryAuthorize = (): void => {
@@ -213,6 +221,13 @@ function ScreenOverlayInner({
               onRevision: (nextRevision) => {
                 setPreviewError('')
                 setRevision(nextRevision)
+              },
+              onSkeletonChange: (isSkeleton) => {
+                if (cancelled) return
+                setSkeletonPreview(isSkeleton)
+                if (!isSkeleton && artifact?.id) {
+                  setArtifactPreviewStatus(artifact.id, 'ready')
+                }
               },
               onError: reportError
             })
@@ -247,7 +262,14 @@ function ScreenOverlayInner({
       if (retryTimer) window.clearTimeout(retryTimer)
       cleanupWatch?.()
     }
-  }, [artifactKind, artifactRelativePath, setFileError, workspaceRoot])
+  }, [
+    artifact?.id,
+    artifactKind,
+    artifactRelativePath,
+    setArtifactPreviewStatus,
+    setFileError,
+    workspaceRoot
+  ])
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -448,7 +470,9 @@ function ScreenOverlayInner({
     []
   )
 
-  const webviewUrl = fileUrl ? `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}rev=${revision}` : ''
+  const webviewUrl = shouldRenderHtmlFrameWebview(fileUrl, skeletonPreview)
+    ? `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}rev=${revision}`
+    : ''
 
   const measureContentSize = useCallback((): void => {
     const wv = webviewRef.current
@@ -586,6 +610,7 @@ function ScreenOverlayInner({
   const frameRadius = Math.min(7, Math.max(3, screenWidth * 0.012))
   const chromeOffset = Math.min(28, Math.max(18, screenWidth * 0.045))
   const showChrome = screenWidth > 92 && screenHeight > 42
+  const transparentGeneratingSurface = skeletonPreview || drawingActive
   const QualityIcon =
     qualityStatus.kind === 'critical'
       ? AlertTriangle
@@ -748,10 +773,16 @@ function ScreenOverlayInner({
       ) : null}
 
       <div
-        className={`relative h-full w-full overflow-hidden border bg-white shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:bg-[#101214] ${
-          active
-            ? 'border-[#6557ff] shadow-[0_0_0_1px_rgba(101,87,255,0.45),0_16px_38px_rgba(15,23,42,0.14)]'
-            : 'border-black/10 dark:border-white/12'
+        className={`relative h-full w-full overflow-hidden border ${
+          transparentGeneratingSurface
+            ? active
+              ? 'border-dashed border-[#6557ff] bg-transparent shadow-none'
+              : 'border-dashed border-ds-border/70 bg-transparent shadow-none dark:border-white/20'
+            : `bg-white shadow-[0_12px_30px_rgba(15,23,42,0.10)] dark:bg-[#101214] ${
+                active
+                  ? 'border-[#6557ff] shadow-[0_0_0_1px_rgba(101,87,255,0.45),0_16px_38px_rgba(15,23,42,0.14)]'
+                  : 'border-black/10 dark:border-white/12'
+              }`
         }`}
         style={{ borderRadius: frameRadius }}
       >
@@ -779,12 +810,22 @@ function ScreenOverlayInner({
               }}
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-ds-faint">
+            <div
+              className={
+                transparentGeneratingSurface
+                  ? 'flex h-full w-full items-start justify-center p-3 text-ds-muted'
+                  : 'flex h-full w-full items-center justify-center text-ds-faint'
+              }
+            >
               <div
-                className="flex flex-col items-center gap-2 text-center"
+                className={
+                  transparentGeneratingSurface
+                    ? 'flex max-w-[70%] items-center gap-1.5 rounded-full border border-accent/25 bg-white/90 px-3 py-1.5 text-center text-[11px] font-semibold text-accent shadow-[0_10px_30px_rgba(20,47,95,0.12)] backdrop-blur-md dark:bg-ds-card/90'
+                    : 'flex flex-col items-center gap-2 text-center'
+                }
                 style={{ fontSize: Math.min(16, Math.max(12, canvasWidth * 0.018)) }}
               >
-                {drawingActive ? (
+                {drawingActive || skeletonPreview ? (
                   <Brush
                     className="h-5 w-5 animate-pulse text-accent"
                     strokeWidth={1.8}

@@ -39,6 +39,9 @@ const SCREEN_DIMENSION_DESCRIPTION =
 const DESIGN_TEMPLATE_DESCRIPTION =
   'Optional template family. Omit it to follow the current Design target (Web -> saas/web components, App -> mobile/app components).'
 
+const CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION =
+  'Before setting x/y, inspect the current canvas snapshot in the turn prompt and avoid existing shapes, images, frames, selected bounds, occupied frames, and content bounds. Omit x/y when no exact placement is required so the renderer can choose a non-overlapping slot.'
+
 export function buildDesignCanvasLocalTools(): LocalTool[] {
   return [
     createDesignCanvasTool(),
@@ -81,8 +84,8 @@ export function createDesignCanvasTool(): LocalTool {
           type: 'string',
           description: 'Self-contained screen/frame brief for add_screen. Design mode uses it for follow-up HTML generation; Code whiteboard keeps the result as editable canvas shapes.'
         },
-        x: { type: 'number' },
-        y: { type: 'number' },
+        x: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
+        y: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
         width: { type: 'number', description: SCREEN_DIMENSION_DESCRIPTION },
         height: { type: 'number', description: SCREEN_DIMENSION_DESCRIPTION },
         devicePreset: {
@@ -130,7 +133,7 @@ export function createDesignCreateScreenTool(): LocalTool {
     name: DESIGN_CREATE_SCREEN_TOOL_NAME,
     description: [
       'Create one or more GUI canvas screen/frame shapes. Prefer this over design_canvas action=add_screen.',
-      'The renderer places omitted coordinates in the current whiteboard viewport and follows the current Design target when devicePreset is omitted. Design mode generates screen HTML afterwards; Code-mode whiteboard creates plain editable frame shapes with no HTML generation.'
+      'The renderer places omitted coordinates in the current whiteboard viewport while avoiding existing screen/content, and follows the current Design target when devicePreset is omitted. If you set coordinates, derive them from the current canvas snapshot so new frames do not cover existing images or frames. Design mode generates screen HTML afterwards; Code-mode whiteboard creates plain editable frame shapes with no HTML generation.'
     ].join(' '),
     toolKind: 'tool_call',
     policy: 'auto',
@@ -144,8 +147,8 @@ export function createDesignCreateScreenTool(): LocalTool {
           description:
             'Self-contained screen/frame brief. Design mode uses it for follow-up HTML generation; Code-mode whiteboard keeps it as frame context only.'
         },
-        x: { type: 'number' },
-        y: { type: 'number' },
+        x: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
+        y: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
         width: { type: 'number', description: SCREEN_DIMENSION_DESCRIPTION },
         height: { type: 'number', description: SCREEN_DIMENSION_DESCRIPTION },
         devicePreset: {
@@ -162,8 +165,8 @@ export function createDesignCreateScreenTool(): LocalTool {
             properties: {
               name: { type: 'string' },
               brief: { type: 'string' },
-              x: { type: 'number' },
-              y: { type: 'number' },
+              x: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
+              y: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
               width: { type: 'number', description: SCREEN_DIMENSION_DESCRIPTION },
               height: { type: 'number', description: SCREEN_DIMENSION_DESCRIPTION },
               devicePreset: {
@@ -195,7 +198,7 @@ export function createDesignUpdateShapesTool(): LocalTool {
     name: DESIGN_UPDATE_SHAPES_TOOL_NAME,
     description: [
       'Apply validated shape operations to the active design canvas: add, update, delete, move, resize, style, token, component, and image changes.',
-      'Use this for whiteboard/vector edits. Use design_create_screen for new screen frames and design_system_template for style-kit boards.'
+      'Use this for whiteboard/vector edits. Use design_create_screen for new screen frames and design_system_template for style-kit boards. For any add/move/resize coordinates, inspect the current canvas snapshot first and preserve existing object bounds unless the user asked to replace them.'
     ].join(' '),
     toolKind: 'tool_call',
     policy: 'auto',
@@ -231,7 +234,7 @@ export function createDesignArrangeTool(): LocalTool {
     name: DESIGN_ARRANGE_TOOL_NAME,
     description: [
       'Arrange existing canvas objects with alignment, distribution, stacking, grid layout, or responsive reflow.',
-      'This keeps whiteboard layout operations explicit and avoids mixing arrangement intent with low-level shape edits.'
+      'This keeps whiteboard layout operations explicit and avoids mixing arrangement intent with low-level shape edits. Operate only on ids from the current canvas snapshot and do not arrange new content over unrelated existing objects.'
     ].join(' '),
     toolKind: 'tool_call',
     policy: 'auto',
@@ -275,7 +278,7 @@ export function createDesignSystemTemplateTool(): LocalTool {
     name: DESIGN_SYSTEM_TEMPLATE_TOOL_NAME,
     description: [
       'Create, update, apply, or validate a reusable design-system style-kit board.',
-      'The renderer turns this into tokens, reusable component specimens, color/type/spacing samples, and a cohesive template board.'
+      'The renderer turns this into tokens, reusable component specimens, color/type/spacing samples, and a cohesive template board. Omit x/y unless the current canvas snapshot shows a precise empty slot; omitted coordinates are auto-placed away from existing canvas content.'
     ].join(' '),
     toolKind: 'tool_call',
     policy: 'auto',
@@ -301,8 +304,8 @@ export function createDesignSystemTemplateTool(): LocalTool {
           }
         },
         targetIds: { type: 'array', items: { type: 'string' } },
-        x: { type: 'number' },
-        y: { type: 'number' },
+        x: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
+        y: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
         width: { type: 'number' },
         height: { type: 'number' },
         dryRun: { type: 'boolean' }

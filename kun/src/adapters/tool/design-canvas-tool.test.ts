@@ -32,6 +32,8 @@ describe('design_canvas tool', () => {
     expect(tool.name).toBe(DESIGN_CANVAS_TOOL_NAME)
     expect(tool.description).toContain('Code-mode sidebar whiteboard')
     expect(JSON.stringify(tool.inputSchema)).toContain('Code whiteboard creates an editable frame')
+    expect(JSON.stringify(tool.inputSchema)).toContain('inspect the current canvas snapshot')
+    expect(JSON.stringify(tool.inputSchema)).toContain('non-overlapping slot')
     expect(tool.shouldAdvertise?.(context(true))).toBe(true)
     expect(tool.shouldAdvertise?.(context(false))).toBe(false)
   })
@@ -97,6 +99,9 @@ describe('dedicated design tools', () => {
     expect(JSON.stringify(tool.inputSchema)).toContain('App -> mobile 390x844')
     expect(JSON.stringify(tool.inputSchema)).toContain('Omit it unless the user asks for a custom size')
     expect(JSON.stringify(tool.inputSchema)).toContain('omitted dimensions follow the current Design target')
+    expect(JSON.stringify(tool.inputSchema)).toContain('avoid existing shapes, images, frames')
+    expect(tool.description).toContain('current canvas snapshot')
+    expect(tool.description).toContain('do not cover existing images or frames')
     expect(tool.description).toContain('Code-mode whiteboard creates plain editable frame shapes')
     expect(JSON.stringify(tool.inputSchema)).toContain('Code-mode whiteboard keeps it as frame context only')
     const result = await tool.execute(
@@ -115,6 +120,7 @@ describe('dedicated design tools', () => {
     const tool = createDesignUpdateShapesTool()
     expect(tool.name).toBe(DESIGN_UPDATE_SHAPES_TOOL_NAME)
     expect(JSON.stringify(tool.inputSchema)).toContain('direct top-level ShapeOp')
+    expect(tool.description).toContain('inspect the current canvas snapshot first')
     const op = { op: 'add', shape: { type: 'rect', width: 40, height: 40 } }
     const result = await tool.execute({ ops: op }, context())
     expect(result.output).toMatchObject({
@@ -170,6 +176,8 @@ describe('dedicated design tools', () => {
     expect(tool.name).toBe(DESIGN_SYSTEM_TEMPLATE_TOOL_NAME)
     expect(JSON.stringify(tool.inputSchema)).toContain('Web -> saas/web components')
     expect(JSON.stringify(tool.inputSchema)).toContain('App -> mobile/app components')
+    expect(JSON.stringify(tool.inputSchema)).toContain('inspect the current canvas snapshot')
+    expect(tool.description).toContain('auto-placed away from existing canvas content')
     const result = await tool.execute(
       { name: 'IKUN World', seedColor: '#D4AF37', mode: 'dark', template: 'game' },
       context()

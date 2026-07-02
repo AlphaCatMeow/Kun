@@ -28,8 +28,12 @@ export type StartDesignHtmlPreviewWatchOptions = {
   workspaceRoot: string
   path: string
   onRevision: (revision: number) => void
+  onSkeletonChange?: (isSkeleton: boolean) => void
   onError: (message: string) => void
 }
+
+const SKELETON_TITLE = '<title>Generating design preview</title>'
+const SKELETON_MARKER = 'Kun is preparing a live preview'
 
 const SKELETON_STYLE = `
     :root {
@@ -91,6 +95,10 @@ const SKELETON_STYLE = `
       50% { transform: scale(1); opacity: 1; }
     }
 `
+
+export function isDesignPreviewSkeleton(content: string): boolean {
+  return content.includes(SKELETON_TITLE) && content.includes(SKELETON_MARKER)
+}
 
 function currentPrepareApi(api?: DesignPreviewPrepareApi): DesignPreviewPrepareApi | undefined {
   return api ?? (typeof window !== 'undefined' ? window.kunGui : undefined)
@@ -186,9 +194,14 @@ export function startDesignHtmlPreviewWatch(options: StartDesignHtmlPreviewWatch
     options.onRevision(revision)
   }
 
+  const reportContentState = (content: string): void => {
+    options.onSkeletonChange?.(isDesignPreviewSkeleton(content))
+  }
+
   const offChanged = api.onWorkspaceFileChanged((payload) => {
     if (!watchId || payload.watchId !== watchId) return
     if (payload.ok) {
+      reportContentState(payload.content)
       bumpRevision()
       return
     }
@@ -210,6 +223,7 @@ export function startDesignHtmlPreviewWatch(options: StartDesignHtmlPreviewWatch
         return
       }
       watchId = result.watchId
+      reportContentState(result.content)
       bumpRevision()
     })
     .catch((error: unknown) => {

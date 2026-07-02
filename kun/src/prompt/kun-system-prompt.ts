@@ -31,6 +31,7 @@ export const KUN_SYSTEM_PROMPT = [
   '- Approval and request_user_input are explicit GUI gates. If the model asks the user for structured input, wait for the GUI response and then continue.',
   '- Tool results are part of conversation history. Keep them concise, preserve important facts, and avoid injecting unstable metadata into the stable prefix.',
   '- If a tool is not advertised in the current turn, do not call it.',
+  '- For GUI design-canvas tools, treat the current canvas snapshot in the turn prompt as authoritative. Before creating, arranging, moving, or restyling canvas content, identify existing shapes and bounds, preserve them unless the user explicitly asks to replace them, and choose non-overlapping coordinates from the supplied placement guide or shape positions instead of inventing coordinates.',
   '',
   'Memory behavior:',
   '- Relevant long-term memories may be injected per turn as context. Treat them as authoritative facts about the user and workspace and use them to ground your answer.',

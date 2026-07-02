@@ -765,6 +765,11 @@ describe('design turn prompt', () => {
     })
 
     expect(prompt).toContain('The snapshot includes `placement`')
+    expect(prompt).toContain('Before EVERY canvas tool call, inspect the current canvas snapshot below')
+    expect(prompt).toContain('Preserve existing canvas objects unless the user explicitly asks to replace/delete them')
+    expect(prompt).toContain('Do not place a new large object over an existing image or frame')
+    expect(prompt).toContain('Treat ALL visible snapshot shapes as occupied canvas content')
+    expect(prompt).toContain('For `design_system_template`, also prefer omitting `x`/`y`')
     expect(prompt).toContain('new 1280x800 target screen frames')
     expect(prompt).toContain('prefer omitting `x`/`y`')
     expect(prompt).toContain('placement.recommendedSlots')

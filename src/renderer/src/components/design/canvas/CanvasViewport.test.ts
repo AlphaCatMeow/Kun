@@ -4,8 +4,10 @@ import {
   shouldRenderCanvasMinimap,
   shouldHandleCanvasKeyboardEvent,
   shouldRenderDesignArtifactOverlays,
+  shouldOpenImageAnnotation,
   shouldSyncCanvasHtmlFrames
 } from './CanvasViewport'
+import { createDefaultShape } from '../../../design/canvas/canvas-types'
 
 describe('CanvasViewport surface behavior', () => {
   it('keeps design artifact overlays out of the code canvas', () => {
@@ -22,6 +24,18 @@ describe('CanvasViewport surface behavior', () => {
     expect(shouldSyncCanvasHtmlFrames('design', true)).toBe(true)
     expect(shouldSyncCanvasHtmlFrames('design', false)).toBe(false)
     expect(shouldSyncCanvasHtmlFrames('code', true)).toBe(false)
+  })
+
+  it('allows filled images to open annotation on design and code canvases', () => {
+    const image = createDefaultShape('image', 0, 0)
+    image.imageUrl = 'assets/image.png'
+    const emptyImage = createDefaultShape('image', 0, 0)
+    const rect = createDefaultShape('rect', 0, 0)
+
+    expect(shouldOpenImageAnnotation('design', image)).toBe(true)
+    expect(shouldOpenImageAnnotation('code', image)).toBe(true)
+    expect(shouldOpenImageAnnotation('code', emptyImage)).toBe(false)
+    expect(shouldOpenImageAnnotation('code', rect)).toBe(false)
   })
 
   it('allows code canvases to override the design-system persistence directory', () => {

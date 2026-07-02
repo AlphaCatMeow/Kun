@@ -125,6 +125,7 @@ import type { DesignComposerContext, DesignHtmlElementContext } from '../design/
 import type { DesignFrameContext, ScreenTurnOptions, ScreenManifestEntry } from '../design/design-turn-prompt'
 import { takeLastCanvasOpErrors } from '../design/canvas/apply-shape-ops'
 import {
+  CODE_CANVAS_DIR,
   codeCanvasErrorKey,
   loadCodeCanvasDesignSystemForPrompt,
   resolveCodeCanvasWorkspaceRoot,
@@ -190,6 +191,10 @@ import {
 import { filesUnderDirectory, loadWorkspaceFileIndex } from '../lib/workspace-file-index'
 import { resolveWriteRuntimeBannerMessage } from '../lib/write-runtime-banner'
 import { shouldSuppressRuntimeErrorBanner } from '../lib/runtime-banner-visibility'
+
+function isCodeCanvasDocumentKey(documentKey: string | null | undefined): boolean {
+  return Boolean(documentKey?.includes(`\0${CODE_CANVAS_DIR}/`))
+}
 
 function frameContextForHtmlArtifact(
   artifactId: string,
@@ -751,6 +756,7 @@ export function Workbench(): ReactElement {
   const sddDraftContent = useSddDraftStore((s) => s.content)
   const sddDraftOperationStatus = useSddDraftStore((s) => s.operationStatus)
   const canvasDocument = useCanvasShapeStore((s) => s.document)
+  const canvasDocumentKey = useCanvasShapeStore((s) => s.documentKey)
   const canvasSelectedIds = useCanvasSelectionStore((s) => s.selectedIds)
 
   useEffect(() => {
@@ -1957,6 +1963,68 @@ export function Workbench(): ReactElement {
     })()
   }
 
+  const buildCodeCanvasOutboundText = async ({
+    baseText,
+    canvasBrief
+  }: {
+    baseText: string
+    canvasBrief: string
+  }): Promise<string> => {
+    if (rightPanelMode !== 'canvas') setRightPanelMode('canvas')
+    const snapshot = activeThreadId
+      ? await snapshotCodeCanvasForPrompt({
+          workspaceRoot: activeCodeCanvasWorkspace,
+          threadId: activeThreadId,
+          currentDocument: useCanvasShapeStore.getState().document,
+          currentDocumentKey: useCanvasShapeStore.getState().documentKey,
+          selectedIds: useCanvasSelectionStore.getState().selectedIds,
+          viewBox: useCanvasViewportStore.getState().vbox,
+          defaultScreenSize: defaultFrameSizeForDesignTarget(
+            useDesignWorkspaceStore.getState().designContext.designTarget
+          )
+        })
+      : undefined
+    const canvasFeedbackKey = activeThreadId ? codeCanvasErrorKey(activeThreadId) : undefined
+    const canvasDesignSystem = activeThreadId
+      ? await loadCodeCanvasDesignSystemForPrompt({
+          workspaceRoot: activeCodeCanvasWorkspace,
+          threadId: activeThreadId
+        })
+      : undefined
+    const canvasPrompt = buildCodeCanvasTurnPrompt({
+      workspaceRoot: activeCodeCanvasWorkspace,
+      text: canvasBrief,
+      designContext: useDesignWorkspaceStore.getState().designContext,
+      ...(canvasFeedbackKey ? { previousOpErrors: takeLastCanvasOpErrors(canvasFeedbackKey) } : {}),
+      ...(canvasFeedbackKey ? { canvasFeedbackKey } : {}),
+      ...(canvasDesignSystem ? { canvasDesignSystem } : {}),
+      ...(snapshot ? { canvasSnapshot: snapshot } : {})
+    })
+    return `${baseText}\n\n${canvasPrompt}`
+  }
+
+  const sendCodeCanvasPrompt = async (
+    value: string,
+    options?: { displayText?: string }
+  ): Promise<void> => {
+    const text = value.trim()
+    if (!text) return
+    if (!activeCodeCanvasWorkspace.trim()) {
+      setError(t('workspaceRequiredToCreateThread'))
+      return
+    }
+    const outboundText = await buildCodeCanvasOutboundText({
+      baseText: text,
+      canvasBrief: text
+    })
+    const reasoningEffort = composerReasoningEffortRequestValue(composerReasoningEffort)
+    await sendMessage(outboundText, 'agent', {
+      ...(options?.displayText ? { displayText: options.displayText } : {}),
+      guiDesignCanvas: true,
+      ...(reasoningEffort ? { reasoningEffort } : {})
+    })
+  }
+
   const sendDesignPrompt = (
     value: string,
     options?: { displayText?: string; source?: DesignPromptSource }
@@ -2397,7 +2465,13 @@ export function Workbench(): ReactElement {
   const handleApplyImageAnnotation = async (result: ImageAnnotationResult): Promise<void> => {
     const shapeId = useImageAnnotationStore.getState().editingShapeId
     if (!shapeId) return
-    const root = useDesignWorkspaceStore.getState().workspaceRoot || workspaceRoot
+    const currentDocumentKey = useCanvasShapeStore.getState().documentKey
+    const isCodeCanvasAnnotation = currentDocumentKey
+      ? isCodeCanvasDocumentKey(currentDocumentKey)
+      : routeRef.current === 'chat'
+    const root = isCodeCanvasAnnotation
+      ? activeCodeCanvasWorkspace
+      : useDesignWorkspaceStore.getState().workspaceRoot || workspaceRoot
     if (!root) {
       setError(t('workspaceRequiredToCreateThread'))
       return
@@ -2424,10 +2498,12 @@ export function Workbench(): ReactElement {
       // restore the clean original picture.
       shapeStore.updateShape(shapeId, { imageUrl: saved.workspaceRelativePath })
       useCanvasSelectionStore.getState().select([shapeId])
-      // Make sure the board (not some HTML page) is the active artifact, so the
-      // turn resolves to the canvas-selection lane and edits this image.
-      const board = findDesignBoardArtifact(useDesignWorkspaceStore.getState().artifacts)
-      if (board) useDesignWorkspaceStore.getState().setActiveArtifact(board.id)
+      if (!isCodeCanvasAnnotation) {
+        // Make sure the board (not some HTML page) is the active artifact, so the
+        // turn resolves to the canvas-selection lane and edits this image.
+        const board = findDesignBoardArtifact(useDesignWorkspaceStore.getState().artifacts)
+        if (board) useDesignWorkspaceStore.getState().setActiveArtifact(board.id)
+      }
       closeImageAnnotation()
       const prompt = buildImageAnnotationPrompt({
         annotatedRelativePath: saved.workspaceRelativePath,
@@ -2438,6 +2514,12 @@ export function Workbench(): ReactElement {
         textNotes: result.textNotes,
         instruction: result.instruction
       })
+      if (isCodeCanvasAnnotation) {
+        window.setTimeout(() => {
+          void sendCodeCanvasPrompt(prompt, { displayText })
+        }, 60)
+        return
+      }
       // Let the selection/store writes settle before the turn snapshots the canvas.
       setTimeout(() => sendDesignPrompt(prompt, { displayText }), 60)
     } finally {
@@ -3312,37 +3394,10 @@ export function Workbench(): ReactElement {
         hasSelection: useCanvasSelectionStore.getState().selectedIds.size > 0
       })
     if (shouldSendToCodeCanvas) {
-      if (rightPanelMode !== 'canvas') setRightPanelMode('canvas')
-      const snapshot = activeThreadId
-        ? await snapshotCodeCanvasForPrompt({
-            workspaceRoot: activeCodeCanvasWorkspace,
-            threadId: activeThreadId,
-            currentDocument: useCanvasShapeStore.getState().document,
-            currentDocumentKey: useCanvasShapeStore.getState().documentKey,
-            selectedIds: useCanvasSelectionStore.getState().selectedIds,
-            viewBox: useCanvasViewportStore.getState().vbox,
-            defaultScreenSize: defaultFrameSizeForDesignTarget(
-              useDesignWorkspaceStore.getState().designContext.designTarget
-            )
-          })
-        : undefined
-      const canvasFeedbackKey = activeThreadId ? codeCanvasErrorKey(activeThreadId) : undefined
-      const canvasDesignSystem = activeThreadId
-        ? await loadCodeCanvasDesignSystemForPrompt({
-            workspaceRoot: activeCodeCanvasWorkspace,
-            threadId: activeThreadId
-          })
-        : undefined
-      const canvasPrompt = buildCodeCanvasTurnPrompt({
-        workspaceRoot: activeCodeCanvasWorkspace,
-        text: prepared.displayText ?? (v || emptyPrompt),
-        designContext: useDesignWorkspaceStore.getState().designContext,
-        ...(canvasFeedbackKey ? { previousOpErrors: takeLastCanvasOpErrors(canvasFeedbackKey) } : {}),
-        ...(canvasFeedbackKey ? { canvasFeedbackKey } : {}),
-        ...(canvasDesignSystem ? { canvasDesignSystem } : {}),
-        ...(snapshot ? { canvasSnapshot: snapshot } : {})
+      outboundText = await buildCodeCanvasOutboundText({
+        baseText: prepared.text,
+        canvasBrief: prepared.displayText ?? (v || emptyPrompt)
       })
-      outboundText = `${prepared.text}\n\n${canvasPrompt}`
       outboundDisplay = prepared.displayText ?? prepared.text
       outboundGuiDesignCanvas = true
     }
@@ -3644,6 +3699,35 @@ export function Workbench(): ReactElement {
       onReplanChanged={(ids) => void replanChangedRequirements(ids)}
     />
   )
+
+  const renderImageAnnotationEditor = (): ReactElement | null => {
+    const isCodeCanvasAnnotation = canvasDocumentKey
+      ? isCodeCanvasDocumentKey(canvasDocumentKey)
+      : route === 'chat'
+    if (route !== 'design' && !(route === 'chat' && isCodeCanvasAnnotation)) return null
+    if (route === 'chat' && activeSddDraft) return null
+    const annotatingShape = annotatingShapeId
+      ? canvasDocument.objects[annotatingShapeId]
+      : undefined
+    if (!annotatingShape || annotatingShape.type !== 'image' || !annotatingShape.imageUrl) {
+      return null
+    }
+    const annotationWorkspaceRoot = isCodeCanvasAnnotation
+      ? activeCodeCanvasWorkspace
+      : designWorkspaceRoot || workspaceRoot
+    return (
+      <ImageAnnotationEditor
+        imageUrl={annotatingShape.imageUrl}
+        workspaceRoot={annotationWorkspaceRoot}
+        title={annotatingShape.name}
+        busy={annotationBusy}
+        onCancel={() => {
+          if (!annotationBusy) closeImageAnnotation()
+        }}
+        onApply={(annotationResult) => void handleApplyImageAnnotation(annotationResult)}
+      />
+    )
+  }
 
   const renderRightPanel = (): ReactElement | null => {
     if (!rightPanelDockedVisible) return null
@@ -4048,26 +4132,6 @@ export function Workbench(): ReactElement {
               onRuntimeQualityFindings={handleDesignRuntimeQualityFindings}
               onRequestQualityRepair={handleDesignQualityRepairRequest}
             />
-            {(() => {
-              const annotatingShape = annotatingShapeId
-                ? canvasDocument.objects[annotatingShapeId]
-                : undefined
-              if (!annotatingShape || annotatingShape.type !== 'image' || !annotatingShape.imageUrl) {
-                return null
-              }
-              return (
-                <ImageAnnotationEditor
-                  imageUrl={annotatingShape.imageUrl}
-                  workspaceRoot={designWorkspaceRoot || workspaceRoot}
-                  title={annotatingShape.name}
-                  busy={annotationBusy}
-                  onCancel={() => {
-                    if (!annotationBusy) closeImageAnnotation()
-                  }}
-                  onApply={(annotationResult) => void handleApplyImageAnnotation(annotationResult)}
-                />
-              )
-            })()}
             {renderRightPanel()}
           </div>
         ) : route === 'write' ? (
@@ -4317,6 +4381,7 @@ export function Workbench(): ReactElement {
 
           </>
         )}
+        {renderImageAnnotationEditor()}
         {renderPlanPanelOverlay()}
       </main>
       {route === 'chat' ? (

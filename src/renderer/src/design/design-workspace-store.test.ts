@@ -121,6 +121,18 @@ describe('design workspace store', () => {
     )
   })
 
+  it('updates and persists HTML preview status', () => {
+    useDesignWorkspaceStore.getState().setArtifactPreviewStatus('screen', 'ready')
+
+    const updated = useDesignWorkspaceStore.getState().artifacts.find((a) => a.id === 'screen')
+    expect(updated?.previewStatus).toBe('ready')
+    expect(writeWorkspaceFile).toHaveBeenCalledWith(expect.objectContaining({
+      path: '.kun-design/doc/screen/meta.json',
+      workspaceRoot: '/workspace',
+      content: expect.stringContaining('"previewStatus": "ready"')
+    }))
+  })
+
   it('uses app-target preview proportions for newly prepared HTML turns', () => {
     useDesignWorkspaceStore.getState().setDesignTarget('app')
     const result = useDesignWorkspaceStore.getState().prepareHtmlTurn('Create a habit tracker')

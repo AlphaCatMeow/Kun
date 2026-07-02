@@ -72,6 +72,13 @@ export function shouldSyncCanvasHtmlFrames(
   return surface === 'design' && syncHtmlScreens
 }
 
+export function shouldOpenImageAnnotation(
+  surface: 'design' | 'code',
+  shape: CanvasDocument['objects'][string] | undefined
+): boolean {
+  return (surface === 'design' || surface === 'code') && shape?.type === 'image' && Boolean(shape.imageUrl)
+}
+
 export function resolveCanvasDesignSystemBaseDir(
   baseDir: string | undefined,
   designSystemBaseDir: string | undefined
@@ -548,7 +555,7 @@ export function CanvasViewport({
       }
       // Double-clicking a filled image opens the annotation editor: draw markup
       // over the picture, then the agent re-edits it (image-to-image).
-      if (surface === 'design' && shape?.type === 'image' && shape.imageUrl) {
+      if (shouldOpenImageAnnotation(surface, shape)) {
         useCanvasSelectionStore.getState().select([hitId])
         useImageAnnotationStore.getState().openImageAnnotation(hitId)
       }
