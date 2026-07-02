@@ -56,5 +56,12 @@ describe('DesignHtmlPreviewHost helpers', () => {
         executeJavaScript: async () => 42
       }, 'true')
     ).resolves.toBe(42)
+    await expect(
+      executeDesignHtmlPreviewScript({
+        executeJavaScript: async () => {
+          throw new Error('guest script failed')
+        }
+      }, 'true')
+    ).resolves.toBeNull()
   })
 })

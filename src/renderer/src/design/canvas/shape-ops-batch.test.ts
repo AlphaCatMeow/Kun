@@ -7,7 +7,7 @@ import { useDesignSystemStore } from './design-system-store'
 import { setScreenArtifactFactory, setScreenCreationFactory, takeScreenBrief } from './screen-artifact-bridge'
 import { createLinkedHtmlScreen } from './screen-lifecycle'
 import { useCanvasViewportStore } from './canvas-viewport-store'
-import { createEmptyDocument, createHtmlFrameShape, type CanvasShape } from './canvas-types'
+import { createDefaultShape, createEmptyDocument, createHtmlFrameShape, type CanvasShape } from './canvas-types'
 import { useDesignWorkspaceStore } from '../design-workspace-store'
 import type { DesignArtifact, DesignDocument } from '../design-types'
 
@@ -113,6 +113,7 @@ function installLinkedScreenFactory(): void {
       y: request.y,
       width: request.width,
       height: request.height,
+      targetFrameId: request.targetFrameId,
       devicePreset: request.devicePreset,
       preparePreview: request.preparePreview
     })
@@ -244,6 +245,72 @@ describe('HTML screen frame resize ops', () => {
       boardHidden: false,
       viewMode: 'preview'
     })
+  })
+
+  it('locks a linked HTML frame to manual size after an explicit update op changes size', () => {
+    installHtmlArtifact('screen')
+    const frame = createHtmlFrameShape('Screen', 0, 0, 'screen', 'mobile')
+    useCanvasShapeStore.getState().addShape(frame)
+
+    executeOps([{ op: 'update', id: frame.id, patch: { height: 2400 } }])
+
+    const shape = getShape(frame.id)
+    const artifact = useDesignWorkspaceStore.getState().artifacts.find((item) => item.id === 'screen')
+    expect(shape.height).toBe(2400)
+    expect(artifact?.node).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 390,
+      height: 2400,
+      sizeMode: 'manual',
+      boardHidden: false,
+      viewMode: 'preview'
+    })
+  })
+
+})
+
+describe('AI image holder fill ops', () => {
+  it('fills a selected empty frame as one image shape instead of adding a child image', () => {
+    const frame = createDefaultShape('frame', 100, 120)
+    frame.name = 'Logo frame'
+    frame.width = 586
+    frame.height = 643
+    useCanvasShapeStore.getState().addShape(frame)
+    useCanvasSelectionStore.getState().select([frame.id])
+
+    const result = executeOps([
+      {
+        op: 'add',
+        parentId: frame.id,
+        shape: {
+          type: 'image',
+          name: 'iKun Logo',
+          x: 132,
+          y: 149,
+          width: 430,
+          height: 430,
+          imageUrl: '.deepseekgui-images/ikun-logo.png'
+        }
+      }
+    ])
+
+    const shape = getShape(frame.id)
+    const document = useCanvasShapeStore.getState().document
+    expect(result.affectedIds).toEqual([frame.id])
+    expect(document.objects[document.rootId]?.children).toEqual([frame.id])
+    expect(shape).toMatchObject({
+      id: frame.id,
+      type: 'image',
+      name: 'iKun Logo',
+      x: 100,
+      y: 120,
+      width: 586,
+      height: 643,
+      imageUrl: '.deepseekgui-images/ikun-logo.png',
+      aiImageHolder: false
+    })
+    expect(shape.children).toEqual([])
   })
 })
 
@@ -398,6 +465,52 @@ describe('add-screens', () => {
     })
     expect(artifact?.versions[0]?.summary).toBe('A compact checkout screen')
     expect(takeScreenBrief(shape.id)).toBe('A compact checkout screen')
+  })
+
+  it('reuses the selected empty frame when creating a linked HTML screen', () => {
+    installLinkedScreenFactory()
+    const target = createDefaultShape('frame', -1724, -2410)
+    target.name = 'Frame'
+    target.width = 1834
+    target.height = 930
+    useCanvasShapeStore.getState().addShape(target)
+    useCanvasSelectionStore.getState().select([target.id])
+
+    const r = executeOps([
+      { op: 'add-screen', name: 'Introduction', brief: 'Intro page for the community site' }
+    ])
+
+    expect(r.ok).toBe(true)
+    expect(r.affectedIds).toEqual([target.id])
+    const shape = getShape(target.id)
+    expect(shape).toMatchObject({
+      type: 'frame',
+      name: 'Introduction',
+      x: -1724,
+      y: -2410,
+      width: 1834,
+      height: 930,
+      devicePreset: 'desktop'
+    })
+    expect(shape.htmlArtifactId).toBeTruthy()
+    const document = useCanvasShapeStore.getState().document
+    expect(document.objects[document.rootId]?.children).toEqual([target.id])
+    expect(useCanvasSelectionStore.getState().selectedIds.has(target.id)).toBe(true)
+
+    const artifact = useDesignWorkspaceStore.getState().artifacts.find((item) => item.id === shape.htmlArtifactId)
+    expect(artifact).toMatchObject({
+      kind: 'html',
+      title: 'Introduction',
+      node: {
+        x: -1724,
+        y: -2410,
+        width: 1834,
+        height: 930,
+        sizeMode: 'manual',
+        viewMode: 'preview'
+      }
+    })
+    expect(takeScreenBrief(target.id)).toBe('Intro page for the community site')
   })
 
   it('creates batched linked screens with auto nodes matching their frames', () => {

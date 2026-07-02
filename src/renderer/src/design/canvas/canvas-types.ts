@@ -189,9 +189,10 @@ export type CanvasShape = {
   /**
    * Marks this shape as an AI image holder — an empty slot the design agent
    * fills on request (the in-process equivalent of cowart's `cowartAiImageHolder`
-   * frame). An `image` holder is filled in place (`update` its imageUrl); a
-   * `frame` holder is filled by adding a child image. Survives in the AI snapshot
-   * so the agent knows which panels are waiting for a picture.
+   * frame). Holders are filled in place (`update` its imageUrl); empty frame/rect
+   * holders are converted to image shapes so the slot and picture stay one object.
+   * Survives in the AI snapshot so the agent knows which panels are waiting for a
+   * picture.
    */
   aiImageHolder?: boolean
   clipContent?: boolean

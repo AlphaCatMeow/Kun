@@ -21,6 +21,27 @@ export function findShape(id: string): CanvasShape | null {
   return useCanvasShapeStore.getState().document.objects[id] ?? null
 }
 
+export function htmlFramePatchChangesSize(patch: Partial<CanvasShape>): boolean {
+  return typeof patch.width === 'number' || typeof patch.height === 'number'
+}
+
+export function promoteHtmlFrameToManualNode(shapeId: string): void {
+  const shape = useCanvasShapeStore.getState().document.objects[shapeId]
+  if (!shape || !isHtmlFrame(shape) || !shape.htmlArtifactId) return
+  const designStore = useDesignWorkspaceStore.getState()
+  const artifact = designStore.artifacts.find((item) => item.id === shape.htmlArtifactId)
+  if (!artifact || artifact.kind !== 'html') return
+  designStore.updateArtifactNode(shape.htmlArtifactId, {
+    x: Math.round(shape.x),
+    y: Math.round(shape.y),
+    width: Math.round(shape.width),
+    height: Math.round(shape.height),
+    sizeMode: 'manual',
+    boardHidden: false,
+    viewMode: artifact.node?.viewMode ?? 'preview'
+  })
+}
+
 export function listShapeIds(): string[] {
   const { objects, rootId } = useCanvasShapeStore.getState().document
   return Object.keys(objects).filter((id) => id !== rootId)

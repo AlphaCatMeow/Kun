@@ -253,6 +253,8 @@ describe("design turn prompt code canvas and context guidance", () => {
     it('canvas turn prompt qualifies the selected-image-holder rule to empty holders only', () => {
       const prompt = buildCodeCanvasTurnPrompt({ workspaceRoot: '/ws' })
       expect(prompt).toContain('selected EMPTY `image` holder (no `imageUrl` field in the snapshot)')
+      expect(prompt).toContain('selected EMPTY `frame` or `rect` holder')
+      expect(prompt).toContain('Do NOT add a child image')
       expect(prompt).toContain('STOP — this is an EDIT, not a fill')
       expect(prompt).not.toContain(
         'selected `image` (or an `image` holder): `generate_image` with `aspect_ratio`'

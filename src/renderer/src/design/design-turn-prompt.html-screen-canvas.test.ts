@@ -464,6 +464,30 @@ describe("design turn prompt HTML, screen, and canvas guidance", () => {
       })
       expect(prompt).not.toContain('IMPORTANT PRIOR')
     })
+    it('tells the agent to reuse a selected empty frame for new pages', () => {
+      const doc = createEmptyDocument()
+      const root = doc.objects[doc.rootId]
+      const frame = createDefaultShape('frame', -1724, -2410)
+      frame.name = 'Frame'
+      frame.width = 1834
+      frame.height = 930
+      doc.objects[frame.id] = { ...frame, parentId: doc.rootId }
+      doc.objects[doc.rootId] = { ...root, children: [frame.id] }
+      const canvasSnapshot = snapshotCanvas(doc, new Set([frame.id]))
+
+      const prompt = buildDesignTurnPrompt({
+        target: 'canvas',
+        mode: 'text',
+        text: '设计一个介绍页面',
+        artifactRelativePath: '.kun-design/board/canvas.json',
+        workspaceRoot: '/workspace',
+        canvasSnapshot
+      })
+
+      expect(prompt).toContain('If exactly one empty `frame` is selected')
+      expect(prompt).toContain('WITHOUT x/y/width/height')
+      expect(prompt).toContain('convert that selected canvas frame into the HTML screen')
+    })
     it('lists multiple selected shapes explicitly in the canvas prompt', () => {
       const doc = createEmptyDocument()
       const root = doc.objects[doc.rootId]

@@ -355,6 +355,32 @@ export function htmlFrameShouldCropVisualHeight({
   return transparentGeneratingSurface && autoResizeEnabled
 }
 
+export function htmlFrameWebviewCanvasStyle({
+  canvasWidth,
+  visualCanvasHeight,
+  zoom,
+  interactive
+}: {
+  canvasWidth: number
+  visualCanvasHeight: number
+  zoom: number
+  interactive: boolean
+}): {
+  width: number
+  height: number
+  transform: string
+  transformOrigin: 'left top'
+  pointerEvents: 'auto' | 'none'
+} {
+  return {
+    width: canvasWidth,
+    height: visualCanvasHeight,
+    transform: `scale(${zoom})`,
+    transformOrigin: 'left top',
+    pointerEvents: interactive ? 'auto' : 'none'
+  }
+}
+
 export function shouldAutoResizeHtmlFrame({
   sizeMode
 }: {

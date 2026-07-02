@@ -23,6 +23,7 @@ export {
   htmlFrameShouldPromotePreviewToReady,
   htmlFrameShouldSuppressDocumentScrollbars,
   htmlFrameVisualCanvasHeight,
+  htmlFrameWebviewCanvasStyle,
   htmlFrameWebviewPartition,
   resolveHtmlFrameMeasurementDecision,
   shouldAutoResizeHtmlFrame,
@@ -31,6 +32,46 @@ export {
 export type { HtmlFrameMeasurementDecision } from './html-frame/html-frame-helpers'
 
 const MAX_ACTIVE_WEBVIEWS = 10
+
+export type HtmlFrameCanvasScreenTransform = {
+  scale: number
+  offsetX: number
+  offsetY: number
+}
+
+export function htmlFrameCanvasScreenTransform({
+  vbox,
+  containerWidth,
+  containerHeight
+}: {
+  vbox: Rect
+  containerWidth: number
+  containerHeight: number
+}): HtmlFrameCanvasScreenTransform {
+  const safeVboxWidth = Number.isFinite(vbox.width) && vbox.width > 0 ? vbox.width : 1
+  const safeVboxHeight = Number.isFinite(vbox.height) && vbox.height > 0 ? vbox.height : 1
+  const safeContainerWidth = Number.isFinite(containerWidth) && containerWidth > 0 ? containerWidth : 1
+  const safeContainerHeight = Number.isFinite(containerHeight) && containerHeight > 0 ? containerHeight : 1
+  const scale = Math.min(safeContainerWidth / safeVboxWidth, safeContainerHeight / safeVboxHeight)
+  return {
+    scale,
+    offsetX: (safeContainerWidth - safeVboxWidth * scale) / 2,
+    offsetY: (safeContainerHeight - safeVboxHeight * scale) / 2
+  }
+}
+
+export function htmlFrameCanvasRectToScreenRect(
+  shape: Pick<CanvasShape, 'x' | 'y' | 'width' | 'height'>,
+  vbox: Rect,
+  transform: HtmlFrameCanvasScreenTransform
+): Rect {
+  return {
+    x: transform.offsetX + (shape.x - vbox.x) * transform.scale,
+    y: transform.offsetY + (shape.y - vbox.y) * transform.scale,
+    width: shape.width * transform.scale,
+    height: shape.height * transform.scale
+  }
+}
 
 export function htmlFramesInCanvasPaintOrder(document: CanvasDocument): CanvasShape[] {
   const frames: CanvasShape[] = []
@@ -101,7 +142,12 @@ export function HtmlFrameOverlay({
   const activeTool = useCanvasViewportStore((s) => s.activeTool)
   const selectedIds = useCanvasSelectionStore((s) => s.selectedIds)
 
-  const zoom = containerWidth / vbox.width
+  const canvasScreenTransform = useMemo(() => htmlFrameCanvasScreenTransform({
+    vbox,
+    containerWidth,
+    containerHeight
+  }), [containerHeight, containerWidth, vbox])
+  const zoom = canvasScreenTransform.scale
   const panning = activeTool === 'hand'
 
   const htmlFrames = useMemo(() => {
@@ -128,10 +174,7 @@ export function HtmlFrameOverlay({
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {visibleFrames.map((shape) => {
-        const screenX = ((shape.x - vbox.x) / vbox.width) * containerWidth
-        const screenY = ((shape.y - vbox.y) / vbox.height) * containerHeight
-        const screenWidth = (shape.width / vbox.width) * containerWidth
-        const screenHeight = (shape.height / vbox.height) * containerHeight
+        const screenRect = htmlFrameCanvasRectToScreenRect(shape, vbox, canvasScreenTransform)
         const active = selectedIds.has(shape.id)
 
         return (
@@ -139,10 +182,10 @@ export function HtmlFrameOverlay({
             key={shape.id}
             shape={shape}
             workspaceRoot={workspaceRoot}
-            screenX={screenX}
-            screenY={screenY}
-            screenWidth={screenWidth}
-            screenHeight={screenHeight}
+            screenX={screenRect.x}
+            screenY={screenRect.y}
+            screenWidth={screenRect.width}
+            screenHeight={screenRect.height}
             zoom={zoom}
             active={active}
             interactive={interactiveId === shape.id}

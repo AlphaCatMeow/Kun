@@ -96,10 +96,11 @@ export function executeDesignHtmlPreviewScript(
 ): Promise<unknown> | null {
   if (typeof webview?.executeJavaScript !== 'function') return null
   try {
-    return webview.executeJavaScript(code)
+    return webview.executeJavaScript(code).catch(() => null)
   } catch {
     // Electron throws synchronously when a <webview> exists but is not attached
-    // and dom-ready yet. Callers still handle rejected guest promises normally.
+    // and dom-ready yet. Guest script failures are normalized to null above so
+    // callers do not leak GUEST_VIEW_MANAGER_CALL errors while frames churn.
     return null
   }
 }

@@ -7,6 +7,7 @@ import { collectiveBounds } from '../canvas-align'
 import { lintDesignSystem, setLastLintFindings } from '../design-lint'
 import { applyDesignSystemTemplateOp, type DesignSystemTemplateOp } from '../design-system-template'
 import { getScreenArtifactFactory, getScreenCreationFactory, setScreenBrief } from '../screen-artifact-bridge'
+import { selectedReusableScreenTargetFrameId } from '../screen-lifecycle'
 import { useDesignSystemStore } from '../design-system-store'
 import type { ExecuteOpsOptions, OpError, ShapeOp } from './schema'
 import {
@@ -53,6 +54,8 @@ export function executeAdvancedShapeOp(
       const occupiedRects = htmlFrameRects()
       const vbox = useCanvasViewportStore.getState().vbox
       const hasExplicitPlacements = specs.some(({ spec }) => spec.x !== undefined || spec.y !== undefined)
+      const targetFrameId = !allowPlainFrame && specs.length === 1 ? selectedReusableScreenTargetFrameId() : null
+      const targetFrame = targetFrameId ? findShape(targetFrameId) : null
       const batchRects = layoutRectsInViewport(
         specs.map((spec) => ({ width: spec.width, height: spec.height })),
         vbox
@@ -65,16 +68,20 @@ export function executeAdvancedShapeOp(
           occupiedRects.length === 0 && !hasExplicitPlacements
             ? batchRect
             : placeRectInViewportAvoiding({ width, height }, vbox, [...occupiedRects, ...placedRects])
-        const x = spec.x ?? autoRect.x
-        const y = spec.y ?? autoRect.y
+        const reuseTargetFrame = i === 0 ? targetFrame : null
+        const x = reuseTargetFrame?.x ?? spec.x ?? autoRect.x
+        const y = reuseTargetFrame?.y ?? spec.y ?? autoRect.y
+        const nextWidth = reuseTargetFrame?.width ?? width
+        const nextHeight = reuseTargetFrame?.height ?? height
         if (creationFactory && !allowPlainFrame) {
           const created = creationFactory({
             name: spec.name,
             ...(spec.brief ? { brief: spec.brief } : {}),
             x,
             y,
-            width,
-            height,
+            width: nextWidth,
+            height: nextHeight,
+            ...(reuseTargetFrame ? { targetFrameId: reuseTargetFrame.id } : {}),
             devicePreset: preset,
             preparePreview: false
           })
@@ -82,7 +89,7 @@ export function executeAdvancedShapeOp(
             errors.push({ code: 'INVALID_OP', message: `Cannot create screen artifact for "${spec.name}"` })
             continue
           }
-          placedRects.push({ x, y, width, height })
+          placedRects.push({ x, y, width: nextWidth, height: nextHeight })
           if (spec.brief) setScreenBrief(created.shapeId, spec.brief)
           affectedIds.add(created.shapeId)
           continue
@@ -93,8 +100,8 @@ export function executeAdvancedShapeOp(
           continue
         }
         const shape = createScreenLikeShape(spec.name, x, y, preset, artifactId)
-        shape.width = width
-        shape.height = height
+        shape.width = nextWidth
+        shape.height = nextHeight
         store.addShape(shape)
         placedRects.push(shapeBounds(shape))
         if (artifactId && spec.brief) setScreenBrief(shape.id, spec.brief)

@@ -1,11 +1,12 @@
 import type { CanvasShape, ShapeType } from '../canvas-types'
-import { createDefaultShape, isHtmlFrame, isImplicitImageSlot, shapeBounds, type DevicePreset } from '../canvas-types'
+import { createDefaultShape, isImplicitImageSlot, shapeBounds, type DevicePreset } from '../canvas-types'
 import { useCanvasShapeStore, withDescendants } from '../canvas-shape-store'
+import { useCanvasSelectionStore } from '../canvas-selection-store'
 import { useCanvasViewportStore } from '../canvas-viewport-store'
 import { centerRectInViewport, placeRectInViewportAvoiding } from '../canvas-placement'
 import { alignShapes, collectiveBounds, distributeShapes, type AlignAxis, type DistributeAxis } from '../canvas-align'
 import { getScreenArtifactFactory, getScreenCreationFactory, setScreenBrief } from '../screen-artifact-bridge'
-import { useDesignWorkspaceStore } from '../../design-workspace-store'
+import { selectedReusableScreenTargetFrameId } from '../screen-lifecycle'
 import type { ExecuteOpsOptions, OpError, ShapeOp } from './schema'
 import {
   LINEAR_TYPES,
@@ -14,28 +15,24 @@ import {
   createScreenLikeShape,
   defaultScreenDevicePreset,
   findShape,
+  htmlFramePatchChangesSize,
   htmlFrameRects,
   mergeAutoLayout,
   objectHasLayout,
+  promoteHtmlFrameToManualNode,
   reflowFrame,
   suggestionForMissingId
 } from './context'
 
-function promoteResizedHtmlFrameToManualNode(shapeId: string): void {
-  const shape = useCanvasShapeStore.getState().document.objects[shapeId]
-  if (!shape || !isHtmlFrame(shape) || !shape.htmlArtifactId) return
-  const designStore = useDesignWorkspaceStore.getState()
-  const artifact = designStore.artifacts.find((item) => item.id === shape.htmlArtifactId)
-  if (!artifact || artifact.kind !== 'html') return
-  designStore.updateArtifactNode(shape.htmlArtifactId, {
-    x: Math.round(shape.x),
-    y: Math.round(shape.y),
-    width: Math.round(shape.width),
-    height: Math.round(shape.height),
-    sizeMode: 'manual',
-    boardHidden: false,
-    viewMode: artifact.node?.viewMode ?? 'preview'
-  })
+function imageChildFillShouldUpdateParentSlot(op: Extract<ShapeOp, { op: 'add' }>): CanvasShape | null {
+  if (op.shape.type !== 'image') return null
+  const imageUrl = typeof op.shape.imageUrl === 'string' ? op.shape.imageUrl.trim() : ''
+  if (!imageUrl || !op.parentId) return null
+  const parent = findShape(op.parentId)
+  if (!parent) return null
+  const selected = useCanvasSelectionStore.getState().selectedIds.has(parent.id)
+  if (!isImplicitImageSlot(parent) || (!parent.aiImageHolder && !selected)) return null
+  return parent
 }
 
 export function executeBasicShapeOp(
@@ -57,6 +54,21 @@ export function executeBasicShapeOp(
           suggestion: suggestionForMissingId(op.parentId)
         })
         return true
+      }
+      const parentImageSlot = imageChildFillShouldUpdateParentSlot(op)
+      if (parentImageSlot) {
+        const imageUrl = typeof op.shape.imageUrl === 'string' ? op.shape.imageUrl.trim() : op.shape.imageUrl
+        const patch: Partial<CanvasShape> = {
+          type: 'image',
+          imageUrl,
+          aiImageHolder: false
+        }
+        if (typeof op.shape.name === 'string' && op.shape.name.trim()) {
+          patch.name = op.shape.name.trim()
+        }
+        store.updateShape(parentImageSlot.id, patch)
+        affectedIds.add(parentImageSlot.id)
+        break
       }
       const { type } = op.shape
       const x = op.shape.x ?? 0
@@ -99,7 +111,9 @@ export function executeBasicShapeOp(
         if (LINEAR_TYPES.has(existing.type) && patch.points && patch.points.length > 0) {
           Object.assign(patch, bboxRelative(patch.points))
         }
+        const shouldPromoteHtmlFrame = htmlFramePatchChangesSize(patch)
         store.updateShape(op.id, patch)
+        if (shouldPromoteHtmlFrame) promoteHtmlFrameToManualNode(op.id)
       }
       affectedIds.add(op.id)
       break
@@ -175,7 +189,7 @@ export function executeBasicShapeOp(
         // Otherwise honor each child's resize constraints.
         applyConstraintsOnResize(op.id, oldBounds, newBounds, affectedIds)
       }
-      promoteResizedHtmlFrameToManualNode(op.id)
+      promoteHtmlFrameToManualNode(op.id)
       break
     }
     case 'align': {
@@ -278,17 +292,19 @@ export function executeBasicShapeOp(
       const creationFactory = getScreenCreationFactory()
       const factory = getScreenArtifactFactory()
       const allowPlainFrame = options.screenFallback === 'plain-frame'
+      const targetFrameId = !allowPlainFrame ? selectedReusableScreenTargetFrameId() : null
+      const targetFrame = targetFrameId ? findShape(targetFrameId) : null
       const preset = (op.devicePreset ?? defaultScreenDevicePreset()) as DevicePreset
       const centered = createScreenLikeShape(op.name, 0, 0, preset, null)
-      const width = op.width ?? centered.width
-      const height = op.height ?? centered.height
+      const width = targetFrame?.width ?? op.width ?? centered.width
+      const height = targetFrame?.height ?? op.height ?? centered.height
       const fallbackRect = placeRectInViewportAvoiding(
         { width, height },
         useCanvasViewportStore.getState().vbox,
         htmlFrameRects()
       )
-      const x = op.x ?? fallbackRect.x
-      const y = op.y ?? fallbackRect.y
+      const x = targetFrame?.x ?? op.x ?? fallbackRect.x
+      const y = targetFrame?.y ?? op.y ?? fallbackRect.y
       if (creationFactory && !allowPlainFrame) {
         const created = creationFactory({
           name: op.name,
@@ -297,6 +313,7 @@ export function executeBasicShapeOp(
           y,
           width,
           height,
+          ...(targetFrameId ? { targetFrameId } : {}),
           devicePreset: preset,
           preparePreview: false
         })

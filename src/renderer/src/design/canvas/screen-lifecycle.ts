@@ -21,6 +21,7 @@ export type CreateLinkedHtmlScreenOptions = Partial<Rect> & {
   name?: string
   brief?: string
   devicePreset?: DevicePreset
+  targetFrameId?: string
   preparePreview?: boolean
   select?: boolean
 }
@@ -71,6 +72,25 @@ function occupiedHtmlFrameRects(): Rect[] {
     .map(shapeBounds)
 }
 
+export function isReusableScreenTargetFrame(shape: CanvasShape | undefined): shape is CanvasShape {
+  return Boolean(
+    shape &&
+      shape.type === 'frame' &&
+      !isHtmlFrame(shape) &&
+      shape.visible !== false &&
+      !shape.locked &&
+      shape.children.length === 0
+  )
+}
+
+export function selectedReusableScreenTargetFrameId(): string | null {
+  const selectedIds = useCanvasSelectionStore.getState().selectedIds
+  if (selectedIds.size !== 1) return null
+  const [id] = [...selectedIds]
+  const shape = useCanvasShapeStore.getState().document.objects[id]
+  return isReusableScreenTargetFrame(shape) ? id : null
+}
+
 export function resolveLinkedHtmlScreenGeometry(
   options: Pick<CreateLinkedHtmlScreenOptions, 'x' | 'y' | 'width' | 'height' | 'devicePreset'>
 ): Rect & { devicePreset: DevicePreset } {
@@ -107,7 +127,20 @@ export function createLinkedHtmlScreen(
   const relativePath = `${artifactDirPath(docId, artifactId)}/v1.html`
   const designMdPath = artifactDesignMdPath(docId, artifactId)
   const title = uniqueRootScreenTitle(screenTitle(options.name, options.brief))
-  const geometry = resolveLinkedHtmlScreenGeometry(options)
+  const targetFrame = options.targetFrameId
+    ? useCanvasShapeStore.getState().document.objects[options.targetFrameId]
+    : undefined
+  const reusableTargetFrame = isReusableScreenTargetFrame(targetFrame) ? targetFrame : null
+  const targetDevicePreset = reusableTargetFrame?.devicePreset ?? options.devicePreset
+  const geometry = reusableTargetFrame
+    ? {
+        x: reusableTargetFrame.x,
+        y: reusableTargetFrame.y,
+        width: reusableTargetFrame.width,
+        height: reusableTargetFrame.height,
+        devicePreset: targetDevicePreset ?? defaultDevicePresetForDesignTarget(state.designContext.designTarget)
+      }
+    : resolveLinkedHtmlScreenGeometry(options)
 
   state.upsertArtifact({
     id: artifactId,
@@ -124,16 +157,30 @@ export function createLinkedHtmlScreen(
       y: Math.round(geometry.y),
       width: Math.round(geometry.width),
       height: Math.round(geometry.height),
-      sizeMode: 'auto',
+      sizeMode: reusableTargetFrame ? 'manual' : 'auto',
       viewMode: 'preview'
     }
   })
   useDesignWorkspaceStore.getState().setActiveArtifact(options.boardArtifactId)
 
-  const shape = createHtmlFrameShape(title, geometry.x, geometry.y, artifactId, geometry.devicePreset)
-  shape.width = geometry.width
-  shape.height = geometry.height
-  useCanvasShapeStore.getState().addShape(shape)
+  let shape: CanvasShape
+  if (reusableTargetFrame) {
+    useCanvasShapeStore.getState().updateShape(reusableTargetFrame.id, {
+      name: title,
+      htmlArtifactId: artifactId,
+      devicePreset: geometry.devicePreset,
+      x: geometry.x,
+      y: geometry.y,
+      width: geometry.width,
+      height: geometry.height
+    })
+    shape = useCanvasShapeStore.getState().document.objects[reusableTargetFrame.id] ?? reusableTargetFrame
+  } else {
+    shape = createHtmlFrameShape(title, geometry.x, geometry.y, artifactId, geometry.devicePreset)
+    shape.width = geometry.width
+    shape.height = geometry.height
+    useCanvasShapeStore.getState().addShape(shape)
+  }
   if (options.select !== false) {
     useCanvasSelectionStore.getState().select([shape.id])
     useCanvasViewportStore.getState().setActiveTool('select')

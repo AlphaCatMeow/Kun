@@ -27,6 +27,7 @@ import {
   htmlFrameShouldCropVisualHeight,
   htmlFrameShouldPromotePreviewToReady,
   htmlFrameVisualCanvasHeight,
+  htmlFrameWebviewCanvasStyle,
   htmlFrameWebviewPartition,
   shouldAutoResizeHtmlFrame,
   type HtmlFramePreviewAsyncEpoch
@@ -136,7 +137,7 @@ function ScreenOverlayInner({
     relativePath: artifactKind === 'html' ? artifactRelativePath : undefined,
     enabled: Boolean(workspaceRoot && artifactKind === 'html' && artifactRelativePath),
     partition: htmlFrameWebviewPartition(shape.id),
-    zoom,
+    zoom: 1,
     onError: reportPreviewError,
     onRevision: clearPreviewError
   })
@@ -605,11 +606,12 @@ function ScreenOverlayInner({
           {preview.webviewUrl ? (
             renderWebview({
               className: 'block border-0',
-              style: {
-                width: screenWidth,
-                height: visualScreenHeight,
-                pointerEvents: interactive ? 'auto' : 'none'
-              }
+              style: htmlFrameWebviewCanvasStyle({
+                canvasWidth,
+                visualCanvasHeight,
+                zoom,
+                interactive
+              })
             })
           ) : (
             <HtmlFramePlaceholder

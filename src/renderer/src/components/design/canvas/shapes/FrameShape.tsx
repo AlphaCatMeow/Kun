@@ -67,8 +67,9 @@ function FrameShapeInner({
   const { fill, fillOpacity } = primaryFillPaint(shape)
   const clipId = shape.clipContent ? `clip-${shape.id}` : undefined
 
-  // AI image holder: a frame the design agent fills with a child image on
-  // request. Show an accent dashed border, plus a centered hint while empty.
+  // AI image holder: an empty frame the design agent fills in place by setting
+  // imageUrl, converting the holder to a single image shape. Until then, show
+  // an accent dashed border plus a centered hint.
   const isHolder = Boolean(shape.aiImageHolder)
   const holderHasContent = shape.children.some((id) => objects[id]?.visible)
   const showHolderHint = isHolder && !holderHasContent && shape.width > 56 && shape.height > 32

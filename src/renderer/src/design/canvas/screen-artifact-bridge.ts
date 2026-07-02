@@ -8,6 +8,7 @@ export type ScreenCreationRequest = Rect & {
   name: string
   brief?: string
   devicePreset: DevicePreset
+  targetFrameId?: string
   preparePreview?: boolean
 }
 

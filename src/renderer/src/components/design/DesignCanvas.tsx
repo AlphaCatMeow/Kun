@@ -59,6 +59,7 @@ export function DesignCanvas({
         y: request.y,
         width: request.width,
         height: request.height,
+        targetFrameId: request.targetFrameId,
         devicePreset: request.devicePreset,
         preparePreview: request.preparePreview
       })
