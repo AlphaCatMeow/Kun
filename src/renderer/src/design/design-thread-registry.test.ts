@@ -4,12 +4,14 @@ import type { BrowserStorageLike } from '../lib/browser-storage'
 import {
   activeDesignThreadForWorkspace,
   designDocKey,
+  designDocRefForThreadId,
   emptyDesignThreadRegistry,
   forgetDesignThread,
   isDesignThreadId,
   markDesignThread,
   readDesignThreadRegistry,
-  saveDesignThreadRegistry
+  saveDesignThreadRegistry,
+  splitDesignDocKey
 } from './design-thread-registry'
 
 class MemoryStorage implements BrowserStorageLike {
@@ -76,6 +78,22 @@ describe('design-thread-registry', () => {
       .toEqual(['thread-login'])
     expect(registry.workspaces[designDocKey('/Users/zxy/project', 'settings')]?.threadIds)
       .toEqual(['thread-settings'])
+  })
+
+  it('resolves a thread id back to its design document directory scope', () => {
+    const registry = markDesignThread(
+      '/Users/zxy/project',
+      'login',
+      'thread-login',
+      emptyDesignThreadRegistry()
+    )
+    const key = designDocKey('/Users/zxy/project', 'login')
+
+    expect(splitDesignDocKey(key)).toEqual({ workspaceRoot: '/Users/zxy/project', docId: 'login' })
+    expect(designDocRefForThreadId(' thread-login ', registry)).toEqual({
+      workspaceRoot: '/Users/zxy/project',
+      docId: 'login'
+    })
   })
 
   it('forgets deleted design threads across scopes and falls back to the next remembered thread', () => {

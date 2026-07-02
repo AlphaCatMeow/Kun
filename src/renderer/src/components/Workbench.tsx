@@ -144,6 +144,10 @@ import {
   markDesignThread,
   saveDesignThreadRegistry
 } from '../design/design-thread-registry'
+import {
+  persistDesignChatMetaForDoc,
+  refreshDesignChatTranscriptFromProvider
+} from '../design/design-chat-transcript'
 import { buildSddDraftId, createSddDraft, forgetRememberedSddDraft, useSddDraftStore } from '../sdd/sdd-draft-store'
 import type { SddDraft, SddDraftSaveStatus } from '../sdd/sdd-draft-store'
 import { listSddDraftHistory, titleFromSddDraftContent } from '../sdd/sdd-draft-history'
@@ -1349,7 +1353,14 @@ export function Workbench(): ReactElement {
     const designStore = useDesignWorkspaceStore.getState()
     const root = designStore.workspaceRoot || workspaceRoot
     if (!root) return
-    saveDesignThreadRegistry(markDesignThread(root, designStore.activeDocumentId ?? '', threadId))
+    const docId = designStore.activeDocumentId ?? ''
+    const nextRegistry = markDesignThread(root, docId, threadId)
+    saveDesignThreadRegistry(nextRegistry)
+    void persistDesignChatMetaForDoc({
+      workspaceRoot: root,
+      docId,
+      stampThreadId: threadId
+    }).catch(() => undefined)
     await selectThread(threadId)
   }, [selectThread, workspaceRoot])
 
@@ -1362,6 +1373,16 @@ export function Workbench(): ReactElement {
     const existing = activeDesignThreadForWorkspace(root, designActiveDocumentId, threads)
     if (existing && existing.id !== activeThreadId) void selectThread(existing.id)
   }, [designActiveDocumentId, route, threads, activeThreadId, workspaceRoot, selectThread])
+
+  useEffect(() => {
+    if (route !== 'design' || !designActiveDocumentId) return
+    const root = useDesignWorkspaceStore.getState().workspaceRoot || workspaceRoot
+    if (!root) return
+    void refreshDesignChatTranscriptFromProvider({
+      workspaceRoot: root,
+      docId: designActiveDocumentId
+    })
+  }, [designActiveDocumentId, route, workspaceRoot])
 
   const mirrorClawCommand = async (userText: string, replyText: string): Promise<void> => {
     if (!activeThreadId || typeof window.kunGui?.mirrorClawChannelMessage !== 'function') return

@@ -24,6 +24,7 @@ import {
   readDesignThreadRegistry,
   saveDesignThreadRegistry
 } from './design-thread-registry'
+import { hydrateDesignChatMetaForDoc } from './design-chat-transcript'
 import {
   defaultPreviewNodeSizeForDesignTarget,
   hashDesignSystem,
@@ -927,6 +928,9 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
             activeArtifactId
           })
         }
+        await Promise.all(
+          loaded.map((doc) => hydrateDesignChatMetaForDoc({ workspaceRoot, docId: doc.id }))
+        )
         // Adopt orphan top-level artifact dirs (hand-authored / migration fallback).
         const orphans: DesignArtifact[] = []
         for (const entry of topDirs) {

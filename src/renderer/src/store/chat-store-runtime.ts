@@ -40,6 +40,7 @@ import { isSddAssistantThread } from '../sdd/sdd-thread-registry'
 import { isDesignThreadId, type DesignThreadRegistry } from '../design/design-thread-registry'
 import { readThreadWorktreeRegistry, saveThreadWorktreeRegistry, forgetThreadWorktree } from '../lib/thread-worktree-registry'
 import { notifySddChatTranscriptMirror } from '../sdd/sdd-chat-transcript'
+import { notifyDesignChatTranscriptMirror } from '../design/design-chat-transcript'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
 import {
   armBusyWatchdog as armBusyWatchdogImpl,
@@ -1208,6 +1209,7 @@ export function buildThreadEventSink(
       notifyTurnComplete(completedThreadId, completedState, completedKey)
       notifyWriteWorkspaceFileRefresh(get)
       notifySddChatTranscriptMirror(get)
+      notifyDesignChatTranscriptMirror(get)
       syncTurnCompletionPoll(set, get)
       void get().refreshThreads()
       // Release worktree when the turn finishes and there are no queued

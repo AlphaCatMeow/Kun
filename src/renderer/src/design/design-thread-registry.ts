@@ -25,6 +25,11 @@ export type DesignThreadRegistry = {
   workspaces: Record<string, DesignThreadWorkspaceRecord>
 }
 
+export type DesignDocThreadRef = {
+  workspaceRoot: string
+  docId: string
+}
+
 export function designWorkspaceKey(workspaceRoot: string | undefined | null): string {
   return normalizeWorkspaceRoot(workspaceRoot ?? '')
 }
@@ -45,6 +50,16 @@ export function designDocKey(
   const ws = designWorkspaceKey(workspaceRoot)
   const doc = (docId ?? '').trim()
   return doc ? `${ws}${DOC_SCOPE_SEP}${doc}` : ws
+}
+
+export function splitDesignDocKey(scopeKey: string): DesignDocThreadRef | null {
+  const key = normalizeScopeKey(scopeKey)
+  const i = key.indexOf(DOC_SCOPE_SEP)
+  if (i === -1) return null
+  const workspaceRoot = key.slice(0, i)
+  const docId = key.slice(i + DOC_SCOPE_SEP.length).trim()
+  if (!workspaceRoot || !docId) return null
+  return { workspaceRoot, docId }
 }
 
 /** Normalize a stored key, preserving the 设计稿 suffix of a composite scope key. */
@@ -167,6 +182,20 @@ export function forgetDesignThread(
     }
   }
   return normalizeDesignThreadRegistry({ version: 1, workspaces })
+}
+
+export function designDocRefForThreadId(
+  threadId: string | null | undefined,
+  registry: DesignThreadRegistry = readDesignThreadRegistry()
+): DesignDocThreadRef | null {
+  const id = threadId?.trim()
+  if (!id) return null
+  for (const [scopeKey, record] of Object.entries(registry.workspaces)) {
+    if (!record.threadIds.includes(id)) continue
+    const ref = splitDesignDocKey(scopeKey)
+    if (ref) return ref
+  }
+  return null
 }
 
 export function activeDesignThreadForWorkspace(

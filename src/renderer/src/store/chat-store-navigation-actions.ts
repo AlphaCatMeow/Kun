@@ -76,6 +76,7 @@ import {
   readDesignThreadRegistry,
   saveDesignThreadRegistry
 } from '../design/design-thread-registry'
+import { persistDesignChatMetaForDoc } from '../design/design-chat-transcript'
 import {
   isSddAssistantThread,
   readSddThreadRegistry
@@ -353,7 +354,13 @@ export function createNavigationActions(
         title: DESIGN_ASSISTANT_THREAD_TITLE,
         mode: 'agent'
       })
-      saveDesignThreadRegistry(markDesignThread(targetWorkspace, targetDoc, thread.id))
+      const nextRegistry = markDesignThread(targetWorkspace, targetDoc, thread.id)
+      saveDesignThreadRegistry(nextRegistry)
+      void persistDesignChatMetaForDoc({
+        workspaceRoot: targetWorkspace,
+        docId: targetDoc,
+        stampThreadId: thread.id
+      }).catch(() => undefined)
       set((s) => ({
         route: 'design',
         threads: s.threads.some((item) => item.id === thread.id) ? s.threads : [thread, ...s.threads],
