@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import {
-  Archive,
+  ChevronDown,
+  ChevronRight,
   Check,
   FileCode2,
   FilePlus2,
   Folder,
   FolderOpen,
-  GitCompareArrows,
   Layers,
   Moon,
+  Palette,
   Pencil,
   RotateCcw,
   Settings,
@@ -20,11 +21,13 @@ import { useTranslation } from 'react-i18next'
 import type { SettingsRouteSection } from '../../store/chat-store'
 import { WorkspaceModeTabs } from '../chat/WorkspaceModeTabs'
 import { useDesignWorkspaceStore } from '../../design/design-workspace-store'
-import type { DesignArtifact, DesignDirectionStatus, DesignDocument } from '../../design/design-types'
-import { buildDesignDirectionComparison, groupDesignArtifacts } from '../../design/design-artifact-actions'
+import type { DesignArtifact, DesignDocument } from '../../design/design-types'
+import { groupDesignArtifacts } from '../../design/design-artifact-actions'
+import { findDesignBoardArtifact } from '../../design/design-board'
 import { useCanvasShapeStore } from '../../design/canvas/canvas-shape-store'
 import { useCanvasSelectionStore } from '../../design/canvas/canvas-selection-store'
-import { isHtmlFrame } from '../../design/canvas/canvas-types'
+import { isHtmlFrame, shapeBounds } from '../../design/canvas/canvas-types'
+import { useCanvasViewportStore } from '../../design/canvas/canvas-viewport-store'
 import {
   SidebarCommandRow,
   SidebarFrame,
@@ -32,7 +35,6 @@ import {
   SidebarSectionHeader,
   SidebarTreeRow
 } from '../sidebar/SidebarPrimitives'
-import { DirectionCompareOverlay } from './DirectionCompareOverlay'
 import { CanvasLayersPanel } from './canvas/CanvasLayersPanel'
 
 type Props = {
@@ -67,7 +69,6 @@ export function DesignSidebar({
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()
   }, [])
-  const workspaceRoot = useDesignWorkspaceStore((s) => s.workspaceRoot)
   const documents = useDesignWorkspaceStore((s) => s.documents)
   const activeDocumentId = useDesignWorkspaceStore((s) => s.activeDocumentId)
   const artifacts = useDesignWorkspaceStore((s) => s.artifacts)
@@ -75,7 +76,6 @@ export function DesignSidebar({
   const setActiveArtifact = useDesignWorkspaceStore((s) => s.setActiveArtifact)
   const removeArtifact = useDesignWorkspaceStore((s) => s.removeArtifact)
   const renameArtifact = useDesignWorkspaceStore((s) => s.renameArtifact)
-  const setDirectionStatus = useDesignWorkspaceStore((s) => s.setDirectionStatus)
   const createDocument = useDesignWorkspaceStore((s) => s.createDocument)
   const renameDocument = useDesignWorkspaceStore((s) => s.renameDocument)
   const removeDocument = useDesignWorkspaceStore((s) => s.removeDocument)
@@ -92,9 +92,10 @@ export function DesignSidebar({
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
   const [docDraft, setDocDraft] = useState('')
   const committingDocRef = useRef(false)
-  const [directionCompareOpen, setDirectionCompareOpen] = useState(false)
+  const [agentDrawingsOpen, setAgentDrawingsOpen] = useState(true)
 
   const canvasObjects = useCanvasShapeStore((s) => s.document.objects)
+  const selectedIds = useCanvasSelectionStore((s) => s.selectedIds)
   const screenLinkedIds = useMemo(() => {
     const ids = new Set<string>()
     for (const id of Object.keys(canvasObjects)) {
@@ -104,9 +105,24 @@ export function DesignSidebar({
     return ids
   }, [canvasObjects])
   const grouped = groupDesignArtifacts(artifacts, screenLinkedIds)
-  const directionComparison = useMemo(
-    () => buildDesignDirectionComparison(grouped.directions),
-    [grouped.directions]
+  const selectedHtmlArtifactId = useMemo(() => {
+    for (const id of selectedIds) {
+      const shape = canvasObjects[id]
+      if (shape && isHtmlFrame(shape) && shape.htmlArtifactId) return shape.htmlArtifactId
+    }
+    return null
+  }, [canvasObjects, selectedIds])
+  const agentDrawingArtifactIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const direction of [...grouped.directions, ...grouped.archivedDirections]) {
+      for (const artifact of direction.artifacts) ids.add(artifact.id)
+    }
+    for (const id of screenLinkedIds) ids.add(id)
+    return ids
+  }, [grouped.archivedDirections, grouped.directions, screenLinkedIds])
+  const agentDrawingArtifacts = useMemo(
+    () => artifacts.filter((artifact) => artifact.kind === 'html' && agentDrawingArtifactIds.has(artifact.id)),
+    [agentDrawingArtifactIds, artifacts]
   )
   const sortedDocuments = useMemo(
     () => [...documents].sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt)),
@@ -158,6 +174,39 @@ export function DesignSidebar({
     closeImplementPanel()
     useCanvasSelectionStore.getState().clearSelection()
     switchActiveDocument(documentId)
+  }
+
+  const handleSelectAgentDrawing = (artifact: DesignArtifact): void => {
+    closeImplementPanel()
+    const boardArtifact = findDesignBoardArtifact(useDesignWorkspaceStore.getState().artifacts)
+    if (boardArtifact) setActiveArtifact(boardArtifact.id)
+
+    const frame = Object.values(useCanvasShapeStore.getState().document.objects).find(
+      (shape) => shape && isHtmlFrame(shape) && shape.htmlArtifactId === artifact.id
+    )
+    const viewportStore = useCanvasViewportStore.getState()
+    viewportStore.setActiveTool('select')
+
+    if (frame) {
+      useCanvasSelectionStore.getState().select([frame.id])
+      viewportStore.zoomToFit(shapeBounds(frame), 72, { maxZoom: 1, minZoom: 0.18 })
+      return
+    }
+
+    useCanvasSelectionStore.getState().clearSelection()
+    if (artifact.node) {
+      viewportStore.zoomToFit(
+        {
+          x: artifact.node.x,
+          y: artifact.node.y,
+          width: artifact.node.width,
+          height: artifact.node.height
+        },
+        72,
+        { maxZoom: 1, minZoom: 0.18 }
+      )
+    }
+    if (!boardArtifact) setActiveArtifact(artifact.id)
   }
 
   const renderArtifactStatus = (artifact: DesignArtifact): ReactElement | null => {
@@ -247,152 +296,90 @@ export function DesignSidebar({
     </ul>
   )
 
-  const renderDirectionStatus = (status: DesignDirectionStatus): ReactElement | null => {
-    if (status === 'active') return null
-    const accepted = status === 'accepted'
-    const label = t(accepted ? 'designDirectionAccepted' : 'designDirectionArchived')
+  const renderAgentDrawingRows = (items: DesignArtifact[]): ReactElement => {
+    const scrollable = items.length > 5
     return (
-      <span
-        title={label}
-        className={`rounded-full px-1.5 py-0.5 text-[10.5px] leading-none ${
-          accepted
-            ? 'bg-[#2e9e6b]/10 text-[#2e9e6b]'
-            : 'bg-[var(--ds-sidebar-row-hover)] text-ds-faint'
-        }`}
-      >
-        {label}
-      </span>
+      <div className={scrollable ? 'max-h-[190px] overflow-y-auto pr-1' : undefined}>
+        <ul className="space-y-1">
+          {items.map((artifact) => {
+            const active = artifact.id === activeArtifactId || artifact.id === selectedHtmlArtifactId
+            const status = renderArtifactStatus(artifact)
+            return (
+              <li key={artifact.id}>
+                {editingId === artifact.id ? (
+                  <div className="flex min-h-[34px] items-center rounded-[8px] bg-[var(--ds-sidebar-row-active)] px-2.5 py-1 shadow-[inset_0_0_0_1px_var(--ds-sidebar-row-ring)]">
+                    <input
+                      autoFocus
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={() => commitRename(artifact.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitRename(artifact.id)
+                        else if (e.key === 'Escape') setEditingId(null)
+                      }}
+                      className="h-7 min-w-0 flex-1 rounded-md border border-[var(--ds-sidebar-row-ring)] bg-[var(--ds-sidebar-field-focus)] px-2 text-[13px] text-[#1f2733] outline-none focus:border-[#3b82d8] dark:text-white"
+                    />
+                  </div>
+                ) : (
+                  <SidebarTreeRow
+                    active={active}
+                    onClick={() => handleSelectAgentDrawing(artifact)}
+                    onDoubleClick={() => beginRename(artifact.id, artifact.title)}
+                    title={artifact.title}
+                    className="min-h-[34px]"
+                    buttonClassName="items-center gap-2 px-2.5 py-2"
+                    trailing={
+                      <>
+                        {artifact.versions.length > 1 ? (
+                          <span className="text-[11.5px] text-ds-faint">v{artifact.versions.length}</span>
+                        ) : null}
+                        {status}
+                      </>
+                    }
+                    actions={
+                      <SidebarIconButton
+                        onClick={() => removeArtifact(artifact.id)}
+                        title={t('designDeleteArtifact')}
+                        ariaLabel={t('designDeleteArtifact')}
+                        tone="danger"
+                        stopPropagation
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.9} />
+                      </SidebarIconButton>
+                    }
+                  >
+                    <Palette className="h-3.5 w-3.5 shrink-0 text-ds-muted" strokeWidth={1.9} />
+                    <span className="min-w-0 flex-1 truncate">{artifact.title}</span>
+                  </SidebarTreeRow>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </div>
     )
   }
 
-  const renderDirectionRows = (
-    directions: typeof grouped.directions,
-    options: { archived?: boolean } = {}
-  ): ReactElement => (
-    <ul className="space-y-1">
-      {directions.map((direction) => {
-        const active = direction.artifacts.some((artifact) => artifact.id === activeArtifactId)
-        const firstArtifact = direction.artifacts[0]
-        const archived = options.archived === true
-        return (
-          <li key={direction.id}>
-            <SidebarTreeRow
-              active={active}
-              onClick={() => {
-                if (firstArtifact) setActiveArtifact(firstArtifact.id)
-              }}
-              title={direction.name}
-              className={`min-h-[32px] ${archived ? 'opacity-70' : ''}`}
-              buttonClassName="items-center gap-2 px-2.5 py-1.5"
-              trailing={
-                <>
-                  {renderDirectionStatus(direction.status)}
-                  <span className="text-[11.5px] text-ds-faint">
-                    {t('designDirectionScreenCount', { count: direction.artifacts.length })}
-                  </span>
-                </>
-              }
-              actions={
-                archived ? (
-                  <SidebarIconButton
-                    onClick={() => setDirectionStatus(direction.id, 'active')}
-                    title={t('designDirectionRestore')}
-                    ariaLabel={t('designDirectionRestore')}
-                    stopPropagation
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </SidebarIconButton>
-                ) : (
-                  <>
-                    <SidebarIconButton
-                      onClick={() => setDirectionStatus(direction.id, 'accepted')}
-                      title={t('designDirectionAccept')}
-                      ariaLabel={t('designDirectionAccept')}
-                      active={direction.status === 'accepted'}
-                      stopPropagation
-                    >
-                      <Check className="h-3.5 w-3.5" strokeWidth={1.9} />
-                    </SidebarIconButton>
-                    <SidebarIconButton
-                      onClick={() => setDirectionStatus(direction.id, 'archived')}
-                      title={t('designDirectionArchive')}
-                      ariaLabel={t('designDirectionArchive')}
-                      stopPropagation
-                    >
-                      <Archive className="h-3.5 w-3.5" strokeWidth={1.9} />
-                    </SidebarIconButton>
-                  </>
-                )
-              }
-            >
-              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-ds-muted" strokeWidth={1.9} />
-              <span className="min-w-0 flex-1 truncate">{direction.name}</span>
-            </SidebarTreeRow>
-          </li>
-        )
-      })}
-    </ul>
-  )
-
-  const renderDirectionComparison = (): ReactElement | null => {
-    if (directionComparison.rows.length < 2) return null
+  const renderAgentDrawingsSection = (items: DesignArtifact[]): ReactElement => {
+    const toggleLabel = t(agentDrawingsOpen ? 'designAgentDrawingsCollapse' : 'designAgentDrawingsExpand')
     return (
       <section>
-        <SidebarSectionHeader
-          label={t('designDirectionCompareTitle')}
-          actions={
-            <SidebarIconButton
-              onClick={() => setDirectionCompareOpen(true)}
-              title={t('designDirectionCompareOpen')}
-              ariaLabel={t('designDirectionCompareOpen')}
-              disabled={directionComparison.rows.length < 2 || !workspaceRoot}
-            >
-              <GitCompareArrows className="h-3.5 w-3.5" strokeWidth={1.9} />
-            </SidebarIconButton>
-          }
-        />
-        <div className="space-y-1">
-          {directionComparison.rows.map((row) => {
-            const direction = grouped.directions.find((item) => item.id === row.id)
-            const firstArtifact = direction?.artifacts[0]
-            return (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => {
-                  if (firstArtifact) setActiveArtifact(firstArtifact.id)
-                }}
-                className="group flex w-full flex-col gap-1 rounded-[8px] px-2.5 py-2 text-left text-[12px] text-ds-muted transition hover:bg-[var(--ds-sidebar-row-hover)] hover:text-ds-ink"
-                title={row.name}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <GitCompareArrows className="h-3.5 w-3.5 shrink-0 text-ds-faint group-hover:text-ds-muted" strokeWidth={1.9} />
-                  <span className="min-w-0 flex-1 truncate font-medium text-ds-ink">{row.name}</span>
-                  {renderDirectionStatus(row.status)}
-                </span>
-                <span className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10.5px] text-ds-faint">
-                  <span>{t('designDirectionCompareScreens', { count: row.screenCount })}</span>
-                  <span>{t('designDirectionCompareFlows', { count: row.prototypeLinkCount })}</span>
-                  <span>{t('designDirectionCompareImplemented', { count: row.implementedCount })}</span>
-                </span>
-                {row.uniqueScreenTitles.length > 0 ? (
-                  <span className="line-clamp-2 text-[10.5px] leading-4 text-ds-faint">
-                    {t('designDirectionCompareUnique', {
-                      screens: row.uniqueScreenTitles.slice(0, 3).join(', ')
-                    })}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
-          {directionComparison.sharedScreenTitles.length > 0 ? (
-            <div className="px-2.5 pt-0.5 text-[10.5px] leading-4 text-ds-faint">
-              {t('designDirectionCompareShared', {
-                screens: directionComparison.sharedScreenTitles.slice(0, 4).join(', ')
-              })}
-            </div>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          onClick={() => setAgentDrawingsOpen((open) => !open)}
+          title={toggleLabel}
+          aria-label={toggleLabel}
+          className="flex w-full items-center gap-1 px-2.5 pb-2 pt-5 text-left text-[12px] font-normal text-[#9aa5b5] transition hover:text-ds-muted dark:text-white/35 dark:hover:text-white/55"
+        >
+          {agentDrawingsOpen ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+          )}
+          <span className="min-w-0 flex-1 truncate">{t('designAgentDrawingsTitle')}</span>
+          <span className="shrink-0 text-[11.5px] text-ds-faint">{items.length}</span>
+        </button>
+        {agentDrawingsOpen ? renderAgentDrawingRows(items) : null}
       </section>
     )
   }
@@ -400,25 +387,13 @@ export function DesignSidebar({
   // The board canvas is an implementation surface, so keep the tree focused on
   // user-created drafts while exposing board layers below.
   const renderActiveDocBody = (): ReactElement => {
-    const items = grouped.html
+    const items = grouped.html.filter((artifact) => !agentDrawingArtifactIds.has(artifact.id))
     return (
       <div className="ml-3 mt-0.5 space-y-1 border-l border-[var(--ds-sidebar-row-ring)] pl-2">
-        {grouped.directions.length > 0 ? (
-          <section>
-            <SidebarSectionHeader label={t('designDirectionsTitle')} />
-            {renderDirectionRows(grouped.directions)}
-          </section>
-        ) : null}
-        {renderDirectionComparison()}
-        {grouped.archivedDirections.length > 0 ? (
-          <section>
-            <SidebarSectionHeader label={t('designArchivedDirectionsTitle')} />
-            {renderDirectionRows(grouped.archivedDirections, { archived: true })}
-          </section>
-        ) : null}
+        {agentDrawingArtifacts.length > 0 ? renderAgentDrawingsSection(agentDrawingArtifacts) : null}
         {items.length > 0 ? (
           renderArtifactRows(items)
-        ) : activeArtifact?.kind !== 'canvas' ? (
+        ) : agentDrawingArtifacts.length === 0 && activeArtifact?.kind !== 'canvas' ? (
           <div className="px-2.5 py-1.5 text-[12px] leading-5 text-ds-faint">{t('designDocEmpty')}</div>
         ) : null}
         {activeArtifact?.kind === 'canvas' ? (
@@ -557,12 +532,6 @@ export function DesignSidebar({
           </div>
         </div>
       </SidebarFrame>
-      <DirectionCompareOverlay
-        open={directionCompareOpen}
-        workspaceRoot={workspaceRoot}
-        directions={grouped.directions}
-        onClose={() => setDirectionCompareOpen(false)}
-      />
     </>
   )
 }

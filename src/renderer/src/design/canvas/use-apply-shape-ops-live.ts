@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { ChatBlock, ToolBlock } from '../../agent/types'
+import type { ChatBlock, GeneratedFileReference, ToolBlock } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
 import { collectAssistantTextForTurn } from '../../store/chat-store-runtime-helpers'
 import {
@@ -13,7 +13,7 @@ import { useCanvasSelectionStore } from './canvas-selection-store'
 import { useCanvasShapeStore } from './canvas-shape-store'
 import { takeScreenBrief } from './screen-artifact-bridge'
 import type { ExecuteOpsOptions, OpError } from './shape-ops'
-import { isHtmlFrame } from './canvas-types'
+import { isHtmlFrame, type CanvasDocument } from './canvas-types'
 import { useDesignAssistantStore } from '../design-assistant-store'
 
 /** Coalesce per-token `liveAssistant` deltas so we re-parse at most this often. */
@@ -25,6 +25,14 @@ type ActiveCanvasTurnReplayState = {
   currentTurnUserId?: string | null
   blocks: readonly ChatBlock[]
 }
+
+type GeneratedImageFallbackTarget = {
+  id: string
+  imageUrl: string
+}
+
+const EXISTING_IMAGE_EDIT_PATTERN =
+  /(?:按图片批注修改|修改|编辑|改成|改为|改一下|换成?|替换|重画|重绘|修复|调整|变成|去掉|去除|清除|换个颜色|change|edit|modify|replace|transform|restyle|redo|fix|recolor|remove|clean up)/i
 
 export function activeCanvasTurnMatchesThread(
   state: Pick<ActiveCanvasTurnReplayState, 'activeThreadId'>,
@@ -40,6 +48,85 @@ function blocksForActiveCanvasTurn(state: ActiveCanvasTurnReplayState): readonly
   if (startIndex < 0) return state.blocks
   const endIndex = state.blocks.findIndex((block, index) => index > startIndex && block.kind === 'user')
   return state.blocks.slice(startIndex + 1, endIndex >= 0 ? endIndex : undefined)
+}
+
+function userTextForCanvasFallback(block: ChatBlock | null | undefined): string {
+  if (!block || block.kind !== 'user') return ''
+  const displayText = block.meta?.displayText
+  return typeof displayText === 'string' && displayText.trim() ? displayText : block.text
+}
+
+function userBlockForActiveCanvasTurn(
+  state: ActiveCanvasTurnReplayState
+): Extract<ChatBlock, { kind: 'user' }> | null {
+  if (state.currentTurnUserId) {
+    const block = state.blocks.find((candidate) => candidate.kind === 'user' && candidate.id === state.currentTurnUserId)
+    if (block?.kind === 'user') return block
+  }
+  for (let i = state.blocks.length - 1; i >= 0; i -= 1) {
+    const block = state.blocks[i]
+    if (block.kind === 'user') return block
+  }
+  return null
+}
+
+export function looksLikeExistingCanvasImageEditRequest(text: string): boolean {
+  return EXISTING_IMAGE_EDIT_PATTERN.test(text)
+}
+
+export function resolveGeneratedImageFallbackTarget(options: {
+  document: CanvasDocument
+  selectedIds: ReadonlySet<string>
+  userText: string
+}): GeneratedImageFallbackTarget | null {
+  if (!looksLikeExistingCanvasImageEditRequest(options.userText)) return null
+  if (options.selectedIds.size !== 1) return null
+  const [id] = [...options.selectedIds]
+  if (!id) return null
+  const shape = options.document.objects[id]
+  if (shape?.type !== 'image' || !shape.imageUrl) return null
+  return { id, imageUrl: shape.imageUrl }
+}
+
+function isGenerateImageToolName(value: unknown): boolean {
+  return typeof value === 'string' && (value === 'generate_image' || value.endsWith('__generate_image'))
+}
+
+function generatedFileRelativePath(file: unknown): string {
+  if (!file || typeof file !== 'object') return ''
+  const candidate = file as GeneratedFileReference
+  return typeof candidate.relativePath === 'string' && candidate.relativePath.trim()
+    ? candidate.relativePath.trim()
+    : ''
+}
+
+function latestGeneratedImageMarkdownPath(text: string): string | null {
+  let latest: string | null = null
+  const re = /!\[[^\]]*]\(([^)\s]+)\)/g
+  for (const match of text.matchAll(re)) {
+    const path = match[1]?.trim()
+    if (path?.startsWith('.deepseekgui-images/')) latest = path
+  }
+  return latest
+}
+
+export function latestGeneratedImageRelativePathForTurn(blocks: readonly ChatBlock[]): string | null {
+  let latest: string | null = null
+  for (const block of blocks) {
+    if (block.kind === 'assistant') {
+      latest = latestGeneratedImageMarkdownPath(block.text) ?? latest
+      continue
+    }
+    if (block.kind !== 'tool' || block.status !== 'success') continue
+    if (!isGenerateImageToolName(block.meta?.toolName)) continue
+    const files = block.meta?.generatedFiles
+    if (!Array.isArray(files)) continue
+    for (const file of files) {
+      const relativePath = generatedFileRelativePath(file)
+      if (relativePath) latest = relativePath
+    }
+  }
+  return latest
 }
 
 export function replayActiveCanvasTurn(
@@ -106,6 +193,7 @@ export function useApplyShapeOpsLive(
     let lastRunAt = 0
     let trailingTimer: ReturnType<typeof setTimeout> | null = null
     const appliedToolBlockIds = new Set<string>()
+    let generatedImageFallbackTarget: GeneratedImageFallbackTarget | null = null
 
     // Screens the agent creates via add_screen still need their HTML generated in
     // a follow-up turn. Several can be created in ONE turn, but those follow-up
@@ -120,6 +208,16 @@ export function useApplyShapeOpsLive(
       affectedThisTurn.clear()
       errorsThisTurn.length = 0
       framedThisTurn = false
+      generatedImageFallbackTarget = null
+    }
+
+    const captureGeneratedImageFallbackTarget = (state: ActiveCanvasTurnReplayState): void => {
+      const userBlock = userBlockForActiveCanvasTurn(state)
+      generatedImageFallbackTarget = resolveGeneratedImageFallbackTarget({
+        document: useCanvasShapeStore.getState().document,
+        selectedIds: useCanvasSelectionStore.getState().selectedIds,
+        userText: userTextForCanvasFallback(userBlock)
+      })
     }
 
     // The in-progress (or just-completed) turn's full assistant text. Using the
@@ -248,6 +346,40 @@ export function useApplyShapeOpsLive(
         const text = collectAssistantTextForTurn(s.blocks, userId, s.liveAssistant)
         applyFrom(text, false)
       }
+      if (!generatedImageFallbackTarget && userId) {
+        captureGeneratedImageFallbackTarget({
+          activeThreadId: s.activeThreadId,
+          currentTurnId: s.currentTurnId,
+          currentTurnUserId: userId,
+          blocks: s.blocks
+        })
+      }
+      const turnBlocks = userId
+        ? blocksForActiveCanvasTurn({
+            activeThreadId: s.activeThreadId,
+            currentTurnId: s.currentTurnId,
+            currentTurnUserId: userId,
+            blocks: s.blocks
+          })
+        : []
+      const generatedImagePath =
+        affectedThisTurn.size === 0
+          ? latestGeneratedImageRelativePathForTurn(turnBlocks)
+          : null
+      if (generatedImageFallbackTarget && generatedImagePath) {
+        const shape = useCanvasShapeStore.getState().document.objects[generatedImageFallbackTarget.id]
+        if (
+          shape?.type === 'image' &&
+          shape.imageUrl === generatedImageFallbackTarget.imageUrl &&
+          shape.imageUrl !== generatedImagePath
+        ) {
+          useCanvasShapeStore.getState().updateShape(generatedImageFallbackTarget.id, {
+            imageUrl: generatedImagePath
+          })
+          affectedThisTurn.add(generatedImageFallbackTarget.id)
+          errorsThisTurn.length = 0
+        }
+      }
       const all = [...affectedThisTurn]
       if (all.length > 0) {
         useCanvasSelectionStore.getState().select(all)
@@ -281,13 +413,18 @@ export function useApplyShapeOpsLive(
     // the first Code-canvas send, where the thread id appears after sendMessage),
     // catch up with already-present tool blocks/live text before waiting for the
     // next store change.
-    replayActiveCanvasTurn(useChatStore.getState(), applyToolBlock, processStreaming, targetThreadId)
+    const initialState = useChatStore.getState()
+    if (initialState.currentTurnId) captureGeneratedImageFallbackTarget(initialState)
+    replayActiveCanvasTurn(initialState, applyToolBlock, processStreaming, targetThreadId)
 
     const unsubscribe = useChatStore.subscribe((state, prev) => {
       if (!activeCanvasTurnMatchesThread(state, targetThreadId)) return
       const turnStarted = !prev.currentTurnId && Boolean(state.currentTurnId)
       const turnEnded = Boolean(prev.currentTurnId) && !state.currentTurnId
-      if (turnStarted) resetTurn()
+      if (turnStarted) {
+        resetTurn()
+        captureGeneratedImageFallbackTarget(state)
+      }
       const replayState = canvasReplayStateForStoreUpdate(state, prev)
       if (replayState.currentTurnId && state.blocks !== prev.blocks) {
         for (const block of blocksForActiveCanvasTurn(replayState)) {
