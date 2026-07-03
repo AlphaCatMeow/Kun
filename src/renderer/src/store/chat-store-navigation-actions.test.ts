@@ -324,6 +324,23 @@ describe('chat-store navigation workspace selection', () => {
     expect(harness.state.watchTurnCompletion).toEqual({ thr_code: true })
     expect(harness.selectThread).not.toHaveBeenCalled()
   })
+
+  it('clearActiveThreadSelection clears stale blocks and watches a running thread', () => {
+    const harness = buildHarness()
+    harness.state.activeThreadId = 'thr_old_design'
+    harness.state.busy = true
+    harness.state.blocks = [
+      { kind: 'user', id: 'u1', text: 'old design request' },
+      { kind: 'assistant', id: 'a1', text: 'old design answer' }
+    ]
+
+    harness.actions.clearActiveThreadSelection()
+
+    expect(harness.state.activeThreadId).toBeNull()
+    expect(harness.state.blocks).toEqual([])
+    expect(harness.state.busy).toBe(false)
+    expect(harness.state.watchTurnCompletion).toEqual({ thr_old_design: true })
+  })
 })
 
 describe('onClawChannelActivity routes through subscribeThreadEventsLive (not selectThread)', () => {

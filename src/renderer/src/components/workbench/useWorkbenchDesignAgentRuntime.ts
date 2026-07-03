@@ -31,6 +31,7 @@ type WorkbenchDesignAgentRuntimeOptions = {
   designWorkspaceRoot: DesignThreadBindingOptions['designWorkspaceRoot']
   ensureDesignThreadForWorkspace: DesignPromptControllerOptions['ensureDesignThreadForWorkspace']
   getAttachmentScope: DesignPromptControllerOptions['getAttachmentScope']
+  clearActiveThreadSelection: DesignThreadBindingOptions['clearActiveThreadSelection']
   openDesign: DesignCodeRoundtripActionsOptions['openDesign']
   rightPanelMode: CodeCanvasPromptControllerOptions['rightPanelMode']
   route: DesignThreadBindingOptions['route']
@@ -65,6 +66,7 @@ export function useWorkbenchDesignAgentRuntime({
   designWorkspaceRoot,
   ensureDesignThreadForWorkspace,
   getAttachmentScope,
+  clearActiveThreadSelection,
   openDesign,
   rightPanelMode,
   route,
@@ -87,7 +89,8 @@ export function useWorkbenchDesignAgentRuntime({
     activeDocumentId,
     activeThreadId,
     route,
-    selectThread
+    selectThread,
+    clearActiveThreadSelection
   })
   const designCodeRoundtrip = useDesignCodeRoundtripActions({
     workspaceRoot,

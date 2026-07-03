@@ -195,18 +195,21 @@ function DesignAIRailInner({
 
 
   const activeThread = designThreads.find((th) => th.id === activeThreadId) ?? null
+  const showingDocumentThread = Boolean(activeThread)
   const viewingChildThread = Boolean(childThreadId)
   const headerTitle = viewingChildThread
     ? t('subagentSessionBannerTitle')
     : activeThread?.title || t('designRailTitle')
 
-  const timelineBlocks = viewingChildThread ? childBlocks : blocks
-  const timelineThreadId = viewingChildThread ? childThreadId : activeThreadId
-  const timelineLiveReasoning = viewingChildThread ? '' : liveReasoning
-  const timelineLiveAssistant = viewingChildThread ? '' : liveAssistant
+  const timelineBlocks = viewingChildThread ? childBlocks : showingDocumentThread ? blocks : []
+  const timelineThreadId = viewingChildThread ? childThreadId : showingDocumentThread ? activeThreadId : null
+  const timelineLiveReasoning = viewingChildThread ? '' : showingDocumentThread ? liveReasoning : ''
+  const timelineLiveAssistant = viewingChildThread ? '' : showingDocumentThread ? liveAssistant : ''
   const hasTimeline = viewingChildThread
     ? childBlocks.length > 0
-    : blocks.length > 0 || liveReasoning.trim().length > 0 || liveAssistant.trim().length > 0
+    : showingDocumentThread && (
+      blocks.length > 0 || liveReasoning.trim().length > 0 || liveAssistant.trim().length > 0
+    )
   const runActive = Boolean(pagesRun)
   const activeArtifact = artifacts.find((artifact) => artifact.id === activeArtifactId) ?? null
   const designTargetContextChip = contextChips.find((chip) => chip.kind === 'design-target') ?? null
@@ -224,8 +227,8 @@ function DesignAIRailInner({
   const primaryContextChip = contextChips.find((chip) => chip.kind !== 'design-target') ?? null
   // Keep the composer + new-conversation locked across the whole multi-page run,
   // even during the brief idle gaps between page turns.
-  const effectiveBusy = busy || runActive
-  const canCreateConversation = runtimeConnection === 'ready' && !busy && !runActive && !viewingChildThread
+  const effectiveBusy = (showingDocumentThread && busy) || runActive
+  const canCreateConversation = runtimeConnection === 'ready' && !effectiveBusy && !viewingChildThread
   const showMultiPageToggle =
     designIntentMode === 'generate' && !runActive && activeArtifact?.kind !== 'canvas'
   const contextLabel = primaryContextChip
@@ -518,7 +521,7 @@ function DesignAIRailInner({
             setMode={setMode}
             busy={effectiveBusy}
             runtimeReady={runtimeConnection === 'ready'}
-            hasActiveThread={Boolean(activeThreadId)}
+            hasActiveThread={showingDocumentThread}
             composerModel={composerModel}
             composerProviderId={composerProviderId}
             composerPickList={composerPickList}

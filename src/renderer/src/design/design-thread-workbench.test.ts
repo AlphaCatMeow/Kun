@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { NormalizedThread } from '../agent/types'
 import {
+  designThreadSelectionSyncForDocument,
   designThreadToSelectForDocument,
   designThreadsForDocument,
   switchDesignThreadForDocument
@@ -65,6 +66,32 @@ describe('design thread workbench helpers', () => {
       docId: 'doc',
       registry
     })).toBeNull()
+  })
+
+  it('asks the workbench to clear a stale active thread when the selected design document has no session', () => {
+    const registry = markDesignThread('/workspace', 'other-doc', 'thr_other', emptyDesignThreadRegistry())
+
+    expect(designThreadSelectionSyncForDocument({
+      route: 'design',
+      activeThreadId: 'thr_other',
+      threads: [thread('thr_other', '2026-07-02T00:00:00.000Z')],
+      workspaceRoot: '/workspace',
+      docId: 'doc',
+      registry
+    })).toEqual({ action: 'clear' })
+  })
+
+  it('keeps the active thread when it belongs to the selected design document', () => {
+    const registry = markDesignThread('/workspace', 'doc', 'thr_1', emptyDesignThreadRegistry())
+
+    expect(designThreadSelectionSyncForDocument({
+      route: 'design',
+      activeThreadId: 'thr_1',
+      threads: [thread('thr_1', '2026-07-02T00:00:00.000Z')],
+      workspaceRoot: '/workspace',
+      docId: 'doc',
+      registry
+    })).toEqual({ action: 'none' })
   })
 
   it('marks the switched thread, persists metadata, and selects it', async () => {

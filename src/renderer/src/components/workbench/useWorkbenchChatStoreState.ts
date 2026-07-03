@@ -29,6 +29,7 @@ export function useWorkbenchChatStoreState() {
       openCode: s.openCode,
       openWrite: s.openWrite,
       openDesign: s.openDesign,
+      clearActiveThreadSelection: s.clearActiveThreadSelection,
       ensureWriteThreadForWorkspace: s.ensureWriteThreadForWorkspace,
       ensureDesignThreadForWorkspace: s.ensureDesignThreadForWorkspace,
       createWriteThread: s.createWriteThread,

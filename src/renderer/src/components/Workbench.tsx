@@ -59,7 +59,7 @@ export function Workbench(): ReactElement {
     removeQueuedMessage, interrupt, probeRuntime, composerModel, composerProviderId,
     composerPickList, composerModelGroups, disabledSkillIds, composerMode, setComposerMode,
     setComposerModel, setThreadSearch, renameThread, pinThread, archiveThread, deleteThread,
-    spawnSideConversation, openSideConversationDraft, selectSideConversation, setSidePanelOpen,
+    clearActiveThreadSelection, spawnSideConversation, openSideConversationDraft, selectSideConversation, setSidePanelOpen,
     sideConversations, sidePanel
   } = useWorkbenchChatStoreState()
   const [input, setInput] = useState('')
@@ -340,6 +340,7 @@ export function Workbench(): ReactElement {
     designWorkspaceRoot,
     ensureDesignThreadForWorkspace,
     getAttachmentScope,
+    clearActiveThreadSelection,
     openDesign,
     rightPanelMode,
     route,

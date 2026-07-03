@@ -50,6 +50,27 @@ beforeEach(() => {
 })
 
 describe('DesignAIRail target toggle', () => {
+  it('does not render blocks from a thread outside the active design document', () => {
+    const html = renderToStaticMarkup(
+      createElement(DesignAIRail, props({
+        activeThreadId: 'thread-old-document',
+        blocks: [
+          { kind: 'user', id: 'u1', text: 'old document request' },
+          { kind: 'assistant', id: 'a1', text: 'old document answer' }
+        ],
+        liveReasoning: 'old live reasoning',
+        liveAssistant: 'old live answer',
+        designThreads: []
+      }))
+    )
+
+    expect(html).not.toContain('old document request')
+    expect(html).not.toContain('old document answer')
+    expect(html).not.toContain('old live reasoning')
+    expect(html).not.toContain('old live answer')
+    expect(html).toContain('Describe the UI you want to design. The assistant will generate it for you.')
+  })
+
   it('shows the design target toggle with Web selected by default', () => {
     const html = renderToStaticMarkup(createElement(DesignAIRail, props()))
 
@@ -84,7 +105,18 @@ describe('DesignAIRail target toggle', () => {
   })
 
   it('explains why the rail target switch is disabled while the agent is busy', () => {
-    const html = renderToStaticMarkup(createElement(DesignAIRail, props({ busy: true })))
+    const html = renderToStaticMarkup(createElement(DesignAIRail, props({
+      activeThreadId: 'thread-current-document',
+      busy: true,
+      designThreads: [{
+        id: 'thread-current-document',
+        title: 'Design Assistant',
+        workspace: '/tmp/kun-design',
+        model: 'deepseek-chat',
+        mode: 'agent',
+        updatedAt: '2026-07-03T00:00:00.000Z'
+      }]
+    })))
 
     expect(html).toContain('Design target switching is locked while the design agent is working')
     expect(html).toContain(

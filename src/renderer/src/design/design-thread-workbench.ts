@@ -47,6 +47,25 @@ export function designThreadToSelectForDocument(options: DesignThreadSelectorOpt
   return existing.id
 }
 
+export type DesignThreadSelectionSync =
+  | { action: 'none' }
+  | { action: 'select'; threadId: string }
+  | { action: 'clear' }
+
+export function designThreadSelectionSyncForDocument(options: DesignThreadSelectorOptions & {
+  activeThreadId?: string | null
+  route: string
+}): DesignThreadSelectionSync {
+  const activeThreadId = options.activeThreadId?.trim()
+  if (options.route !== 'design' || !activeThreadId) return { action: 'none' }
+  const threadId = designThreadToSelectForDocument(options)
+  if (threadId) return { action: 'select', threadId }
+  const currentDocThreads = designThreadsForDocument(options)
+  return currentDocThreads.some((thread) => thread.id === activeThreadId)
+    ? { action: 'none' }
+    : { action: 'clear' }
+}
+
 export type SwitchDesignThreadOptions = {
   workspaceRoot?: string | null
   docId?: string | null

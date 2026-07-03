@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import type { NormalizedThread } from '../../agent/types'
 import { refreshDesignChatTranscriptFromProvider } from '../../design/design-chat-transcript'
 import {
-  designThreadToSelectForDocument,
+  designThreadSelectionSyncForDocument,
   designThreadsForDocument,
   switchDesignThreadForDocument
 } from '../../design/design-thread-workbench'
@@ -16,6 +16,7 @@ export type DesignThreadBindingOptions = {
   activeThreadId: string | null
   route: string
   selectThread: (threadId: string) => Promise<void>
+  clearActiveThreadSelection?: () => void
 }
 
 export type DesignThreadBindingState = {
@@ -30,7 +31,8 @@ export function useDesignThreadBinding({
   activeDocumentId,
   activeThreadId,
   route,
-  selectThread
+  selectThread,
+  clearActiveThreadSelection
 }: DesignThreadBindingOptions): DesignThreadBindingState {
   const effectiveWorkspaceRoot = designWorkspaceRoot || workspaceRoot
   const designThreads = useMemo(() => {
@@ -52,15 +54,29 @@ export function useDesignThreadBinding({
   }, [selectThread, workspaceRoot])
 
   useEffect(() => {
-    const nextThreadId = designThreadToSelectForDocument({
+    const sync = designThreadSelectionSyncForDocument({
       route,
       activeThreadId,
       threads,
       workspaceRoot: effectiveWorkspaceRoot,
       docId: activeDocumentId
     })
-    if (nextThreadId) void selectThread(nextThreadId)
-  }, [activeDocumentId, activeThreadId, effectiveWorkspaceRoot, route, selectThread, threads])
+    if (sync.action === 'select') {
+      void selectThread(sync.threadId)
+      return
+    }
+    if (sync.action === 'clear') {
+      clearActiveThreadSelection?.()
+    }
+  }, [
+    activeDocumentId,
+    activeThreadId,
+    clearActiveThreadSelection,
+    effectiveWorkspaceRoot,
+    route,
+    selectThread,
+    threads
+  ])
 
   useEffect(() => {
     if (route !== 'design' || !activeDocumentId || !effectiveWorkspaceRoot) return

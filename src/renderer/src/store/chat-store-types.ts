@@ -238,6 +238,7 @@ export type ChatState = {
   openSchedule: () => void
   openWorkflow: () => void
   openDesign: () => void
+  clearActiveThreadSelection: () => void
   refreshClawChannels: () => Promise<void>
   addClawChannel: (
     provider: ClawImProvider,
