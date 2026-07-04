@@ -21,7 +21,15 @@ type AnnotationOp =
   | { kind: 'rect'; color: string; width: number; from: Point; to: Point }
   | { kind: 'text'; color: string; x: number; y: number; text: string; fontSize: number }
 
-export type ImageAnnotationTextDraft = { cssX: number; cssY: number; x: number; y: number }
+export type ImageAnnotationTextDraft = {
+  cssX: number
+  cssY: number
+  x: number
+  y: number
+  cssFontSize: number
+  cssLineHeight: number
+  maxCssWidth: number
+}
 
 export type ImageAnnotationResult = {
   /** Base64 PNG bytes of the flattened picture + markup (no `data:` prefix). */
@@ -52,6 +60,9 @@ const SWATCHES: { name: string; value: string }[] = [
 ]
 
 const MAX_FLATTEN_DIM = 1280
+const TEXT_EDITOR_MIN_WIDTH = 120
+const TEXT_EDITOR_MARGIN = 8
+const TEXT_LINE_HEIGHT = 1.2
 
 const TOOLS: { tool: AnnotationTool; label: string; Icon: typeof Pencil }[] = [
   { tool: 'pen', label: '画笔', Icon: Pencil },
@@ -80,9 +91,71 @@ export function imageAnnotationTextNotes(ops: readonly AnnotationOp[]): string[]
 export function shouldCommitImageAnnotationTextKey(
   key: string,
   nativeIsComposing: boolean,
-  activeComposition: boolean
+  activeComposition: boolean,
+  ctrlOrMetaKey = false
 ): boolean {
-  return key === 'Enter' && !nativeIsComposing && !activeComposition
+  if (nativeIsComposing || activeComposition) return false
+  return key === 'Escape' || (key === 'Enter' && ctrlOrMetaKey)
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+export function createImageAnnotationTextDraftAtCssPoint(input: {
+  canvasWidth: number
+  canvasHeight: number
+  cssWidth: number
+  cssHeight: number
+  cssX: number
+  cssY: number
+  canvasFontSize: number
+}): ImageAnnotationTextDraft | null {
+  if (input.canvasWidth <= 0 || input.canvasHeight <= 0 || input.cssWidth <= 0 || input.cssHeight <= 0) {
+    return null
+  }
+  const cssX = clamp(input.cssX, 0, input.cssWidth)
+  const cssY = clamp(input.cssY, 0, input.cssHeight)
+  const sx = input.canvasWidth / input.cssWidth
+  const sy = input.canvasHeight / input.cssHeight
+  const cssFontSize = Math.max(16, input.canvasFontSize / Math.max(sx, sy))
+  return {
+    cssX,
+    cssY,
+    x: cssX * sx,
+    y: cssY * sy,
+    cssFontSize,
+    cssLineHeight: cssFontSize * TEXT_LINE_HEIGHT,
+    maxCssWidth: Math.max(TEXT_EDITOR_MIN_WIDTH, input.cssWidth - cssX - TEXT_EDITOR_MARGIN)
+  }
+}
+
+function resizeTextEditor(textarea: HTMLTextAreaElement, draft: ImageAnnotationTextDraft): void {
+  textarea.style.width = `${TEXT_EDITOR_MIN_WIDTH}px`
+  textarea.style.height = `${draft.cssLineHeight}px`
+  const nextWidth = clamp(
+    Math.ceil(textarea.scrollWidth) + 2,
+    Math.min(TEXT_EDITOR_MIN_WIDTH, draft.maxCssWidth),
+    draft.maxCssWidth
+  )
+  textarea.style.width = `${nextWidth}px`
+  textarea.style.height = `${Math.max(draft.cssLineHeight, textarea.scrollHeight)}px`
+}
+
+function paintTextOp(ctx: CanvasRenderingContext2D, op: Extract<AnnotationOp, { kind: 'text' }>): void {
+  ctx.font = `600 ${op.fontSize}px Inter, system-ui, sans-serif`
+  ctx.textBaseline = 'top'
+  ctx.lineWidth = Math.max(2, op.fontSize / 8)
+  ctx.strokeStyle = op.color === '#ffffff' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.85)'
+  ctx.fillStyle = op.color
+  const lineHeight = op.fontSize * TEXT_LINE_HEIGHT
+  const lines = op.text.split(/\r?\n/)
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    const y = op.y + index * lineHeight
+    ctx.strokeText(line, op.x, y)
+    ctx.fillText(line, op.x, y)
+  }
 }
 
 export const IMAGE_ANNOTATION_ROOT_CLASS =
@@ -150,15 +223,7 @@ function paintOp(ctx: CanvasRenderingContext2D, op: AnnotationOp): void {
     )
     return
   }
-  // text
-  ctx.font = `600 ${op.fontSize}px Inter, system-ui, sans-serif`
-  ctx.textBaseline = 'top'
-  // Halo for legibility on busy images.
-  ctx.lineWidth = Math.max(2, op.fontSize / 8)
-  ctx.strokeStyle = op.color === '#ffffff' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.85)'
-  ctx.strokeText(op.text, op.x, op.y)
-  ctx.fillStyle = op.color
-  ctx.fillText(op.text, op.x, op.y)
+  paintTextOp(ctx, op)
 }
 
 export function ImageAnnotationEditor({
@@ -181,6 +246,9 @@ export function ImageAnnotationEditor({
   const [instruction, setInstruction] = useState('')
   const [textDraft, setTextDraft] = useState<ImageAnnotationTextDraft | null>(null)
   const [textValue, setTextValue] = useState('')
+  const textInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const textDraftRef = useRef<ImageAnnotationTextDraft | null>(null)
+  const textValueRef = useRef('')
   const textCompositionRef = useRef(false)
 
   // Live drag state for the in-progress shape (rubber-band preview).
@@ -245,6 +313,36 @@ export function ImageAnnotationEditor({
     if (dragRef.current) paintOp(ctx, dragRef.current.op)
   })
 
+  useEffect(() => {
+    if (!textDraft) return undefined
+    let cancelled = false
+    const focusInput = (): void => {
+      if (cancelled) return
+      const textarea = textInputRef.current
+      if (!textarea) return
+      resizeTextEditor(textarea, textDraft)
+      textarea.focus({ preventScroll: true })
+    }
+    if (typeof window.requestAnimationFrame === 'function') {
+      const frame = window.requestAnimationFrame(focusInput)
+      return () => {
+        cancelled = true
+        window.cancelAnimationFrame(frame)
+      }
+    }
+    const timer = window.setTimeout(focusInput, 0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [textDraft])
+
+  useEffect(() => {
+    const textarea = textInputRef.current
+    if (!textarea || !textDraft) return
+    resizeTextEditor(textarea, textDraft)
+  }, [textDraft, textValue])
+
   const toCanvasPoint = useCallback((e: React.PointerEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current
     if (!canvas) return { x: 0, y: 0 }
@@ -254,14 +352,58 @@ export function ImageAnnotationEditor({
     return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy }
   }, [])
 
+  const openTextDraft = useCallback((draft: ImageAnnotationTextDraft) => {
+    textCompositionRef.current = false
+    textDraftRef.current = draft
+    textValueRef.current = ''
+    setTextValue('')
+    setTextDraft(draft)
+  }, [])
+
+  const cancelTextDraft = useCallback(() => {
+    textDraftRef.current = null
+    textValueRef.current = ''
+    textCompositionRef.current = false
+    setTextDraft(null)
+    setTextValue('')
+  }, [])
+
+  const pendingTextOp = useMemo(
+    () => createImageAnnotationTextOp(textDraft, textValue, color, fontSize),
+    [color, fontSize, textDraft, textValue]
+  )
+
+  const commitText = useCallback(() => {
+    const draft = textDraftRef.current
+    const value = textValueRef.current
+    const op = createImageAnnotationTextOp(draft, value, color, fontSize)
+    cancelTextDraft()
+    if (!op) return
+    setOps((prev) => [...prev, op])
+  }, [cancelTextDraft, color, fontSize])
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (!loaded || busy) return
       const p = toCanvasPoint(e)
       if (tool === 'text') {
+        e.preventDefault()
+        e.stopPropagation()
+        if (textDraftRef.current) {
+          commitText()
+          return
+        }
         const rect = e.currentTarget.getBoundingClientRect()
-        setTextValue('')
-        setTextDraft({ cssX: e.clientX - rect.left, cssY: e.clientY - rect.top, x: p.x, y: p.y })
+        const draft = createImageAnnotationTextDraftAtCssPoint({
+          canvasWidth: e.currentTarget.width,
+          canvasHeight: e.currentTarget.height,
+          cssWidth: rect.width,
+          cssHeight: rect.height,
+          cssX: e.clientX - rect.left,
+          cssY: e.clientY - rect.top,
+          canvasFontSize: fontSize
+        })
+        if (draft) openTextDraft(draft)
         return
       }
       e.currentTarget.setPointerCapture(e.pointerId)
@@ -274,7 +416,7 @@ export function ImageAnnotationEditor({
       }
       rerender()
     },
-    [busy, color, loaded, rerender, strokeWidth, tool, toCanvasPoint]
+    [busy, color, commitText, fontSize, loaded, openTextDraft, rerender, strokeWidth, tool, toCanvasPoint]
   )
 
   const onPointerMove = useCallback(
@@ -303,20 +445,6 @@ export function ImageAnnotationEditor({
     }
     setOps((prev) => [...prev, op])
   }, [rerender])
-
-  const pendingTextOp = useMemo(
-    () => createImageAnnotationTextOp(textDraft, textValue, color, fontSize),
-    [color, fontSize, textDraft, textValue]
-  )
-
-  const commitText = useCallback(() => {
-    const op = createImageAnnotationTextOp(textDraft, textValue, color, fontSize)
-    setTextDraft(null)
-    setTextValue('')
-    textCompositionRef.current = false
-    if (!op) return
-    setOps((prev) => [...prev, op])
-  }, [color, fontSize, textDraft, textValue])
 
   const undo = useCallback(() => setOps((prev) => prev.slice(0, -1)), [])
   const clearAll = useCallback(() => setOps([]), [])
@@ -348,8 +476,7 @@ export function ImageAnnotationEditor({
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         if (textDraft) {
-          setTextDraft(null)
-          setTextValue('')
+          cancelTextDraft()
         } else if (!busy) {
           onCancel()
         }
@@ -357,7 +484,7 @@ export function ImageAnnotationEditor({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onCancel, textDraft])
+  }, [busy, cancelTextDraft, onCancel, textDraft])
 
   // Apply needs *some* instruction — drawn markup, or at least a typed note.
   const canApply = ops.length > 0 || Boolean(dragRef.current) || Boolean(pendingTextOp) || instruction.trim().length > 0
@@ -396,44 +523,74 @@ export function ImageAnnotationEditor({
           </div>
         ) : null}
 
-        <div className="relative" style={{ display: loaded && !loadError ? 'block' : 'none' }}>
+        <div
+          className="ds-no-drag relative inline-block leading-none"
+          style={{ display: loaded && !loadError ? 'inline-block' : 'none' }}
+        >
           <canvas
             ref={canvasRef}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={commitDrag}
             onPointerCancel={commitDrag}
-            className="max-h-[calc(100vh-220px)] max-w-[min(1100px,calc(100vw-180px))] rounded-lg shadow-[0_30px_90px_rgba(0,0,0,0.55)]"
+            className="block max-h-[calc(100vh-220px)] max-w-[min(1100px,calc(100vw-180px))] rounded-lg shadow-[0_30px_90px_rgba(0,0,0,0.55)]"
             style={{ touchAction: 'none', cursor: tool === 'text' ? 'text' : 'crosshair' }}
           />
           {textDraft ? (
-            <input
-              autoFocus
+            <textarea
+              ref={textInputRef}
               value={textValue}
-              onChange={(e) => setTextValue(e.target.value)}
+              rows={1}
+              wrap="off"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(e) => {
+                const nextValue = e.target.value
+                textValueRef.current = nextValue
+                setTextValue(nextValue)
+                resizeTextEditor(e.currentTarget, textDraft)
+              }}
               onCompositionStart={() => {
                 textCompositionRef.current = true
               }}
               onCompositionEnd={(e) => {
+                const nextValue = e.currentTarget.value
                 textCompositionRef.current = false
-                setTextValue(e.currentTarget.value)
+                textValueRef.current = nextValue
+                setTextValue(nextValue)
+              }}
+              onPointerDown={(e) => {
+                e.stopPropagation()
               }}
               onBlur={commitText}
               onKeyDown={(e) => {
+                e.stopPropagation()
                 if (
                   shouldCommitImageAnnotationTextKey(
                     e.key,
                     e.nativeEvent.isComposing,
-                    textCompositionRef.current
+                    textCompositionRef.current,
+                    e.metaKey || e.ctrlKey
                   )
                 ) {
                   e.preventDefault()
                   commitText()
                 }
               }}
-              placeholder="输入文字后回车"
-              className="absolute z-10 min-w-[120px] rounded-md border border-white/70 bg-black/60 px-2 py-1 text-[13px] text-white outline-none placeholder:text-white/45"
-              style={{ left: textDraft.cssX, top: textDraft.cssY }}
+              placeholder="输入文字"
+              className="ds-no-drag absolute z-10 block resize-none overflow-hidden border-0 bg-transparent p-0 font-semibold outline-none placeholder:text-current/35"
+              style={{
+                left: textDraft.cssX,
+                top: textDraft.cssY,
+                maxWidth: textDraft.maxCssWidth,
+                minHeight: textDraft.cssLineHeight,
+                fontFamily: 'Inter, system-ui, sans-serif',
+                fontSize: textDraft.cssFontSize,
+                lineHeight: `${textDraft.cssLineHeight}px`,
+                color,
+                textShadow: color === '#ffffff' ? '0 0 2px rgba(0,0,0,0.65)' : '0 0 2px rgba(255,255,255,0.95)'
+              }}
             />
           ) : null}
         </div>

@@ -2,11 +2,22 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import {
+  createImageAnnotationTextDraftAtCssPoint,
   createImageAnnotationTextOp,
   ImageAnnotationEditor,
   imageAnnotationTextNotes,
   shouldCommitImageAnnotationTextKey
 } from './ImageAnnotationEditor'
+
+const draft = {
+  cssX: 10,
+  cssY: 12,
+  x: 100,
+  y: 120,
+  cssFontSize: 24,
+  cssLineHeight: 28.8,
+  maxCssWidth: 300
+}
 
 function renderEditor(): string {
   return renderToStaticMarkup(
@@ -44,7 +55,7 @@ describe('ImageAnnotationEditor text annotations', () => {
   it('creates trimmed pending text annotations', () => {
     expect(
       createImageAnnotationTextOp(
-        { cssX: 10, cssY: 12, x: 100, y: 120 },
+        draft,
         '  改成蓝色  ',
         '#3b82f6',
         36
@@ -59,12 +70,12 @@ describe('ImageAnnotationEditor text annotations', () => {
     })
 
     expect(createImageAnnotationTextOp(null, '改成蓝色', '#3b82f6', 36)).toBeNull()
-    expect(createImageAnnotationTextOp({ cssX: 0, cssY: 0, x: 0, y: 0 }, '   ', '#3b82f6', 36)).toBeNull()
+    expect(createImageAnnotationTextOp({ ...draft, cssX: 0, cssY: 0, x: 0, y: 0 }, '   ', '#3b82f6', 36)).toBeNull()
   })
 
   it('extracts text notes from committed and pending operations', () => {
     const textOp = createImageAnnotationTextOp(
-      { cssX: 10, cssY: 12, x: 100, y: 120 },
+      draft,
       '标题放大',
       '#111827',
       24
@@ -81,9 +92,84 @@ describe('ImageAnnotationEditor text annotations', () => {
   })
 
   it('does not commit Enter while an IME composition is active', () => {
-    expect(shouldCommitImageAnnotationTextKey('Enter', false, false)).toBe(true)
-    expect(shouldCommitImageAnnotationTextKey('Enter', true, false)).toBe(false)
-    expect(shouldCommitImageAnnotationTextKey('Enter', false, true)).toBe(false)
+    expect(shouldCommitImageAnnotationTextKey('Enter', false, false)).toBe(false)
+    expect(shouldCommitImageAnnotationTextKey('Enter', false, false, true)).toBe(true)
+    expect(shouldCommitImageAnnotationTextKey('Escape', false, false)).toBe(true)
+    expect(shouldCommitImageAnnotationTextKey('Enter', true, false, true)).toBe(false)
+    expect(shouldCommitImageAnnotationTextKey('Enter', false, true, true)).toBe(false)
     expect(shouldCommitImageAnnotationTextKey('a', false, false)).toBe(false)
+  })
+
+  it('creates a text draft at the clicked canvas point', () => {
+    expect(
+      createImageAnnotationTextDraftAtCssPoint({
+        canvasWidth: 1000,
+        canvasHeight: 800,
+        cssWidth: 500,
+        cssHeight: 400,
+        cssX: 60,
+        cssY: 48,
+        canvasFontSize: 60
+      })
+    ).toEqual({
+      cssX: 60,
+      cssY: 48,
+      x: 120,
+      y: 96,
+      cssFontSize: 30,
+      cssLineHeight: 36,
+      maxCssWidth: 432
+    })
+
+    expect(
+      createImageAnnotationTextDraftAtCssPoint({
+        canvasWidth: 0,
+        canvasHeight: 800,
+        cssWidth: 500,
+        cssHeight: 400,
+        cssX: 60,
+        cssY: 48,
+        canvasFontSize: 60
+      })
+    ).toBeNull()
+  })
+
+  it('keeps the text anchor at the clicked point near canvas edges', () => {
+    expect(
+      createImageAnnotationTextDraftAtCssPoint({
+        canvasWidth: 1000,
+        canvasHeight: 800,
+        cssWidth: 500,
+        cssHeight: 400,
+        cssX: 490,
+        cssY: 390,
+        canvasFontSize: 60
+      })
+    ).toMatchObject({
+      cssX: 490,
+      cssY: 390,
+      x: 980,
+      y: 780,
+      maxCssWidth: 120
+    })
+  })
+
+  it('only clamps text anchors that fall outside the canvas', () => {
+    expect(
+      createImageAnnotationTextDraftAtCssPoint({
+        canvasWidth: 1000,
+        canvasHeight: 800,
+        cssWidth: 500,
+        cssHeight: 400,
+        cssX: -20,
+        cssY: 420,
+        canvasFontSize: 60
+      })
+    ).toMatchObject({
+      cssX: 0,
+      cssY: 400,
+      x: 0,
+      y: 800
+    })
   })
 })
