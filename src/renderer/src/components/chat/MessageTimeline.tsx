@@ -65,10 +65,9 @@ type CompactionTimelineBlock = Extract<ChatBlock, { kind: 'compaction' }>
 
 const TURN_PAGE_SIZE = 18
 const AUTO_COLLAPSE_THRESHOLD = 24
-const TIMELINE_JUMP_RAIL_RESERVED_PX = 84
-const TIMELINE_JUMP_RAIL_GAP_PX = 18
 const TIMELINE_JUMP_RAIL_FALLBACK_LEFT_PX = 16
 const TIMELINE_JUMP_RAIL_STAGE_INSET_PX = 16
+const TIMELINE_JUMP_RAIL_WIDTH_PX = 30
 const TIMELINE_JUMP_RAIL_PREVIEW_OFFSET_PX = 34
 const TIMELINE_JUMP_RAIL_PREVIEW_WIDTH_PX = 416
 const TIMELINE_JUMP_RAIL_PREVIEW_MARGIN_PX = 16
@@ -97,23 +96,11 @@ export function activeTimelineTurnKey(
   return active
 }
 
-export function timelineJumpRailLeft(
-  containerWidth: number,
-  contentMaxWidth: number,
-  measuredContentLeft?: number
-): number {
-  const contentWidth = Math.min(
-    containerWidth,
-    Math.max(0, contentMaxWidth),
-    Math.max(0, containerWidth - TIMELINE_JUMP_RAIL_RESERVED_PX)
-  )
-  const fallbackContentLeft = Math.max(0, (containerWidth - contentWidth) / 2)
-  const contentLeft =
-    typeof measuredContentLeft === 'number' && Number.isFinite(measuredContentLeft)
-      ? measuredContentLeft
-      : fallbackContentLeft
+export function timelineJumpRailLeft(containerWidth: number): number {
   const stageLeft = Math.max(TIMELINE_JUMP_RAIL_FALLBACK_LEFT_PX, TIMELINE_JUMP_RAIL_STAGE_INSET_PX)
-  return Math.max(stageLeft, contentLeft - TIMELINE_JUMP_RAIL_GAP_PX)
+  if (!Number.isFinite(containerWidth) || containerWidth <= 0) return stageLeft
+  const maxLeft = Math.max(0, containerWidth - TIMELINE_JUMP_RAIL_WIDTH_PX - TIMELINE_JUMP_RAIL_FALLBACK_LEFT_PX)
+  return Math.min(stageLeft, maxLeft)
 }
 
 export function timelineJumpRailPreviewLeft(
@@ -258,7 +245,6 @@ export function MessageTimeline({
   const hasContent = blocks.length > 0 || live || liveReasoning
   const endRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
   const turnRefMap = useRef(new Map<string, HTMLDivElement>())
   const [activeTurnKey, setActiveTurnKey] = useState<string | null>(null)
   const [jumpRailLayout, setJumpRailLayout] = useState<{
@@ -372,23 +358,13 @@ export function MessageTimeline({
 
   useEffect(() => {
     const container = containerRef.current
-    const content = contentRef.current
     if (!container || visibleTurnAnchors.length <= 2) {
       setJumpRailLayout(null)
       return
     }
     const update = (): void => {
       const rect = container.getBoundingClientRect()
-      const contentRect = content?.getBoundingClientRect()
-      const contentStyle = content ? window.getComputedStyle(content) : null
-      const contentPaddingLeft = Number.parseFloat(contentStyle?.paddingLeft ?? '')
-      const measuredContentLeft = contentRect
-        ? contentRect.left - rect.left + (Number.isFinite(contentPaddingLeft) ? contentPaddingLeft : 0)
-        : undefined
-      const rawMaxWidth = window.getComputedStyle(document.documentElement).getPropertyValue('--ds-chat-content-max-width')
-      const parsedMaxWidth = Number.parseFloat(rawMaxWidth)
-      const contentMaxWidth = Number.isFinite(parsedMaxWidth) ? parsedMaxWidth : 896
-      const railLeft = timelineJumpRailLeft(rect.width, contentMaxWidth, measuredContentLeft)
+      const railLeft = timelineJumpRailLeft(rect.width)
       setJumpRailLayout({
         railLeft,
         previewLeft: timelineJumpRailPreviewLeft(railLeft, rect.width),
@@ -398,7 +374,6 @@ export function MessageTimeline({
     update()
     const observer = new ResizeObserver(update)
     observer.observe(container)
-    if (content) observer.observe(content)
     container.addEventListener('scroll', update, { passive: true })
     window.addEventListener('resize', update)
     return () => {
@@ -484,7 +459,7 @@ export function MessageTimeline({
           <div className="timeline-jump-rail-preview-text">{jumpRailPreview.prompt}</div>
         </div>
       ) : null}
-      <div ref={contentRef} className={`ds-message-timeline-content ds-chat-column-inset ds-chat-content-max-width mx-auto flex w-full min-w-0 flex-col gap-8 pt-8 ${
+      <div className={`ds-message-timeline-content ds-chat-column-inset ds-chat-content-max-width mx-auto flex w-full min-w-0 flex-col gap-8 pt-8 ${
         goalTimelinePaddingClass(heroRoute, Boolean(activeThreadGoal))
       }`}>
         {!hasContent || !activeThreadId ? (

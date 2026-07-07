@@ -36,20 +36,20 @@ describe('timelineJumpWaveLevel', () => {
 })
 
 describe('timelineJumpRailLeft', () => {
-  it('keeps the rail beside the content when the content width is capped', () => {
-    expect(timelineJumpRailLeft(1000, 800)).toBe(82)
+  it('anchors the rail to the left side of the conversation stage', () => {
+    expect(timelineJumpRailLeft(1000)).toBe(16)
   })
 
-  it('reserves space when the requested content width is wider than the stage', () => {
-    expect(timelineJumpRailLeft(1000, 1200)).toBe(24)
+  it('keeps the same left inset in wide conversation stages', () => {
+    expect(timelineJumpRailLeft(1600)).toBe(16)
   })
 
-  it('uses the measured message column when available', () => {
-    expect(timelineJumpRailLeft(1000, 1200, 140)).toBe(122)
+  it('stays inside a very narrow chat stage', () => {
+    expect(timelineJumpRailLeft(24)).toBe(0)
   })
 
-  it('keeps the rail inside the chat stage when measured content sits near the edge', () => {
-    expect(timelineJumpRailLeft(1000, 1200, 6)).toBe(16)
+  it('falls back to the stage inset when the width is not measurable yet', () => {
+    expect(timelineJumpRailLeft(0)).toBe(16)
   })
 })
 
