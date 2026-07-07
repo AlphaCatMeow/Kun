@@ -138,6 +138,46 @@ function formatContextCapacityChipNumber(value: number | null): string {
   return String(Math.round(percent))
 }
 
+export function calculateComposerMenuScrollTop({
+  containerScrollTop,
+  containerClientHeight,
+  itemOffsetTop,
+  itemOffsetHeight
+}: {
+  containerScrollTop: number
+  containerClientHeight: number
+  itemOffsetTop: number
+  itemOffsetHeight: number
+}): number {
+  const currentTop = Math.max(0, containerScrollTop)
+  const visibleHeight = Math.max(0, containerClientHeight)
+  if (visibleHeight <= 0) return currentTop
+
+  const itemTop = Math.max(0, itemOffsetTop)
+  const itemBottom = itemTop + Math.max(0, itemOffsetHeight)
+  const currentBottom = currentTop + visibleHeight
+
+  if (itemTop < currentTop) return itemTop
+  if (itemBottom > currentBottom) return Math.max(0, itemBottom - visibleHeight)
+  return currentTop
+}
+
+function syncComposerMenuScroll(
+  container: HTMLElement | null,
+  item: HTMLElement | null
+): void {
+  if (!container || !item) return
+  const nextScrollTop = calculateComposerMenuScrollTop({
+    containerScrollTop: container.scrollTop,
+    containerClientHeight: container.clientHeight,
+    itemOffsetTop: item.offsetTop,
+    itemOffsetHeight: item.offsetHeight
+  })
+  if (nextScrollTop !== container.scrollTop) {
+    container.scrollTop = nextScrollTop
+  }
+}
+
 type Props = {
   variant?: 'default' | 'compact'
   workspaceRootOverride?: string
@@ -692,6 +732,10 @@ export function FloatingComposer({
   const composerMenuPanelRef = useRef<HTMLDivElement | null>(null)
   const goalPanelRef = useRef<HTMLDivElement | null>(null)
   const contextCapacityRef = useRef<HTMLDivElement | null>(null)
+  const slashCommandMenuRef = useRef<HTMLDivElement | null>(null)
+  const slashCommandItemRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const fileMentionMenuRef = useRef<HTMLDivElement | null>(null)
+  const fileMentionItemRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const fileMentionPresenceRef = useRef<Map<string, boolean>>(new Map())
   const messageTokenCacheRef = useRef<WeakMap<object, number>>(new WeakMap())
   // Cache the last-known runtime capacity inputs. `runtimeInfo` (and thus these
@@ -1003,6 +1047,7 @@ export function FloatingComposer({
     filteredSlashCommands.length > 0
       ? filteredSlashCommands[Math.min(selectedCommandIndex, filteredSlashCommands.length - 1)]
       : null
+  const highlightedSlashCommandId = highlightedSlashCommand?.id ?? null
   const activeFileMention = useMemo<ComposerFileMention | null>(() => {
     if (!fileReferenceEnabled || slashQuery != null || !effectiveWorkspaceRoot) return null
     return getFileMentionAtCursor(input, composerCursor)
@@ -1020,6 +1065,9 @@ export function FloatingComposer({
     fileMentionSuggestions.length > 0
       ? fileMentionSuggestions[Math.min(selectedFileMentionIndex, fileMentionSuggestions.length - 1)]
       : null
+  const highlightedFileMentionKey = highlightedFileMention
+    ? composerFileReferenceKey(highlightedFileMention)
+    : null
   const parsedGoalCommand = parseGoalCommand(input)
   const goalPanelDraftObjective = getGoalPanelDraftObjective(input, goalPanelOpen)
   const canSetGoalPanelDraft =
@@ -1068,6 +1116,22 @@ export function FloatingComposer({
     goalPanelOpen,
     composerMenuOpen
   })
+
+  useEffect(() => {
+    if (slashQuery == null || !highlightedSlashCommandId) return
+    syncComposerMenuScroll(
+      slashCommandMenuRef.current,
+      slashCommandItemRefs.current.get(highlightedSlashCommandId) ?? null
+    )
+  }, [filteredSlashCommands.length, highlightedSlashCommandId, selectedCommandIndex, slashQuery])
+
+  useEffect(() => {
+    if (!showFileMentionMenu || !highlightedFileMentionKey) return
+    syncComposerMenuScroll(
+      fileMentionMenuRef.current,
+      fileMentionItemRefs.current.get(highlightedFileMentionKey) ?? null
+    )
+  }, [fileMentionSuggestions.length, highlightedFileMentionKey, selectedFileMentionIndex, showFileMentionMenu])
 
   useEffect(() => {
     setSelectedCommandIndex(0)
@@ -1920,12 +1984,19 @@ export function FloatingComposer({
               {t('slashCommandMenuTitle')}
             </div>
             {filteredSlashCommands.length > 0 ? (
-              <div className="flex max-h-[min(300px,calc(100vh-260px))] flex-col gap-0.5 overflow-y-auto pr-1">
+              <div
+                ref={slashCommandMenuRef}
+                className="flex max-h-[min(300px,calc(100vh-260px))] flex-col gap-0.5 overflow-y-auto pr-1"
+              >
                 {filteredSlashCommands.map((command) => {
                   const active = highlightedSlashCommand?.id === command.id
                   return (
                     <button
                       key={command.id}
+                      ref={(node) => {
+                        if (node) slashCommandItemRefs.current.set(command.id, node)
+                        else slashCommandItemRefs.current.delete(command.id)
+                      }}
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => applySlashCommand(command.id)}
@@ -1983,15 +2054,23 @@ export function FloatingComposer({
               ) : null}
             </div>
             {fileMentionSuggestions.length > 0 ? (
-              <div className="flex max-h-[min(280px,calc(100vh-260px))] flex-col gap-0.5 overflow-y-auto pr-1">
+              <div
+                ref={fileMentionMenuRef}
+                className="flex max-h-[min(280px,calc(100vh-260px))] flex-col gap-0.5 overflow-y-auto pr-1"
+              >
                 {fileMentionSuggestions.map((reference) => {
                   const isDirectory = isComposerDirectoryReference(reference)
+                  const referenceKey = composerFileReferenceKey(reference)
                   const active =
                     highlightedFileMention?.relativePath === reference.relativePath &&
                     highlightedFileMention?.type === reference.type
                   return (
                     <button
                       key={`${reference.type ?? 'file'}:${reference.relativePath}`}
+                      ref={(node) => {
+                        if (node) fileMentionItemRefs.current.set(referenceKey, node)
+                        else fileMentionItemRefs.current.delete(referenceKey)
+                      }}
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => applyFileMention(reference)}

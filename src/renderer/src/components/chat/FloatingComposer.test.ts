@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   FloatingComposer,
   buildResearchPrompt,
+  calculateComposerMenuScrollTop,
   formatGoalElapsedSeconds,
   handleComposerImagePaste,
   imageFilesFromTransfer,
@@ -174,6 +175,29 @@ describe('FloatingComposer goal helpers', () => {
       goalPanelOpen: false,
       composerMenuOpen: false
     })).toBe(false)
+  })
+
+  it('scrolls keyboard-highlighted menu items into view', () => {
+    expect(calculateComposerMenuScrollTop({
+      containerScrollTop: 0,
+      containerClientHeight: 100,
+      itemOffsetTop: 120,
+      itemOffsetHeight: 30
+    })).toBe(50)
+
+    expect(calculateComposerMenuScrollTop({
+      containerScrollTop: 60,
+      containerClientHeight: 100,
+      itemOffsetTop: 30,
+      itemOffsetHeight: 24
+    })).toBe(30)
+
+    expect(calculateComposerMenuScrollTop({
+      containerScrollTop: 40,
+      containerClientHeight: 100,
+      itemOffsetTop: 70,
+      itemOffsetHeight: 24
+    })).toBe(40)
   })
 })
 
