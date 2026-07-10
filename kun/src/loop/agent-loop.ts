@@ -15,7 +15,7 @@ import type { SessionStore } from '../ports/session-store.js'
 import type { ApprovalGate } from '../ports/approval-gate.js'
 import type { UserInputGate } from '../ports/user-input-gate.js'
 import type { UsageService } from '../services/usage-service.js'
-import { TurnCapacityError, type TurnService, type TurnSettlement } from '../services/turn-service.js'
+import type { TurnService, TurnSettlement } from '../services/turn-service.js'
 import type { RuntimeEventRecorder } from '../services/runtime-event-recorder.js'
 import { rewriteItemHistoryWithRetry } from '../services/history-commit-coordinator.js'
 import { ThreadItemProjectionService } from '../services/thread-item-projection.js'
@@ -61,7 +61,7 @@ import { touchThread } from '../domain/thread.js'
 import { memoryPreview } from '../shared/memory-preview.js'
 import { repairModelHistoryItems } from '../domain/model-history-repair.js'
 import type { TurnItem } from '../contracts/items.js'
-import type { ThreadGoal, ThreadRecord } from '../contracts/threads.js'
+import type { ThreadRecord } from '../contracts/threads.js'
 import { modelCapabilitiesForModel, type ContextCompactionConfig } from './model-context-profile.js'
 import type { SkillRuntime } from '../skills/skill-runtime.js'
 import type { InstructionRuntime } from '../instructions/instruction-runtime.js'
@@ -106,16 +106,15 @@ import {
   DESIGN_SVG_EDIT_TOOL_NAME,
   DESIGN_SVG_VALIDATE_TOOL_NAME
 } from '../adapters/tool/design-svg-tool.js'
-import { GET_GOAL_TOOL_NAME, UPDATE_GOAL_TOOL_NAME } from '../adapters/tool/goal-tools.js'
 import { TODO_LIST_TOOL_NAME, TODO_WRITE_TOOL_NAME } from '../adapters/tool/todo-tools.js'
 import { resolveWorkspacePath, shellRuntimeInstruction } from '../adapters/tool/builtin-tool-utils.js'
 import { VERIFY_CHANGES_TOOL_NAME } from '../adapters/tool/builtin-verify-tool.js'
 import { buildToolPreferenceInstruction } from '../prompt/kun-system-prompt.js'
 import {
-  GoalResumeCoordinator,
-  DEFAULT_MAX_GOAL_RESUME_NO_PROGRESS_ATTEMPTS,
-  type GoalResumeCoordinatorDeps
-} from './goal-resume-coordinator.js'
+  GoalTurnCoordinator,
+  type GoalElapsedTimer,
+  type GoalTurnCoordinatorOptions
+} from './goal-turn-coordinator.js'
 import {
   PLAN_MODE_INSTRUCTION,
   resolvePlanModeToolSpecs,
@@ -158,39 +157,6 @@ export {
   todoContinuationInstruction
 } from './continuation-instructions.js'
 
-/**
- * Tools that, on their own, do not count as "progress" toward a goal when
- * deciding whether to keep auto-resuming after a failed goal turn. A turn
- * that only inspects/updates goal state (and then fails) made no real
- * advancement, so it should burn the no-progress budget; a turn that edits
- * files, runs commands, advances todos, etc. resets it.
- */
-const GOAL_NON_PROGRESS_TOOL_NAMES = new Set<string>([
-  GET_GOAL_TOOL_NAME,
-  UPDATE_GOAL_TOOL_NAME
-])
-
-/**
- * Prompt seeded into an auto-resumed goal continuation turn. The active-goal
- * continuation instruction is injected separately (the goal is still
- * `active`); this user message just nudges the model to pick the work back up
- * where the interrupted turn left off.
- */
-const GOAL_RESUME_PROMPT = [
-  'Continue working toward the active goal.',
-  'The previous attempt stopped before the goal was complete (it was interrupted, truncated, or the runtime restarted, or it simply stopped early).',
-  'Review the current state, pick up where the work left off, and keep going until the goal is genuinely achieved or blocked.'
-].join(' ')
-
-/**
- * Stable identity for the resume coordinator. Changing the objective (or
- * starting a brand-new goal) yields a new key, so a pending backoff resume
- * for an old goal is discarded rather than relaunched against the new one.
- */
-function goalResumeKey(threadId: string, goal: ThreadGoal): string {
-  return `${threadId}::${goal.createdAt}::${goal.objective}`
-}
-
 const PIPELINE_STAGE_LABELS: Record<PipelineStage, string> = {
   setup: 'Setup',
   pre_start: 'Pre-Start',
@@ -203,12 +169,6 @@ const PIPELINE_STAGE_LABELS: Record<PipelineStage, string> = {
   pre_send: 'Pre-Send',
   post_send: 'Post-Send',
   response_received: 'Response Received'
-}
-
-type GoalElapsedTimer = {
-  startedAtMs: number
-  createdAt: string
-  objective: string
 }
 
 export type AgentLoopOptions = {
@@ -250,10 +210,7 @@ export type AgentLoopOptions = {
    * back off exponentially and bound consecutive no-progress retries; tests
    * inject a synchronous timer and small caps for determinism.
    */
-  goalResume?: Pick<
-    GoalResumeCoordinatorDeps,
-    'setTimer' | 'maxNoProgressAttempts' | 'baseDelayMs' | 'maxDelayMs' | 'log'
-  >
+  goalResume?: GoalTurnCoordinatorOptions
   /**
    * Hard allow-list intersected into every tool context for this loop. Used
    * by read-only subagents to clamp the inherited tool host to investigation
@@ -339,16 +296,7 @@ export class AgentLoop {
   private readonly turnFailures = new Map<string, TurnExecutionFailure>()
   /** One owned runner per turn; duplicate callers share its terminal result. */
   private readonly activeTurnRuns = new Map<string, Promise<TurnExecutionStatus>>()
-  /** Turns that executed at least one real (non-goal-status) tool call. */
-  private readonly turnMadeProgress = new Set<string>()
-  /**
-   * Turns whose stop was a deliberate cap rather than an unfinished-goal
-   * interruption (cost-budget exhaustion, or a repetition stall that made no
-   * real progress). These must not drive goal auto-resume even though the goal
-   * is still `active`.
-   */
-  private readonly goalResumeSuppressedByTurn = new Set<string>()
-  private readonly goalResume: GoalResumeCoordinator
+  private readonly goalTurns: GoalTurnCoordinator
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
@@ -374,6 +322,15 @@ export class AgentLoop {
     })
     this.turnAttachments = new TurnAttachmentService(opts.attachmentStore)
     this.modelRouting = new ModelRoutingService(opts.model)
+    this.goalTurns = new GoalTurnCoordinator({
+      threadStore: opts.threadStore,
+      turns: opts.turns,
+      events: opts.events,
+      nowIso: opts.nowIso,
+      nowMs: () => opts.nowMs?.() ?? Date.now(),
+      runTurn: (threadId, turnId) => this.runTurn(threadId, turnId),
+      ...(opts.goalResume ? { goalResume: opts.goalResume } : {})
+    })
     this.modelRoundEngine = new ModelRoundEngine({
       model: opts.model,
       events: opts.events,
@@ -412,8 +369,8 @@ export class AgentLoop {
       ids: opts.ids,
       dispatchToolCalls: (input) => this.dispatchToolCalls(input),
       rememberFailure: (turnId, failure) => this.rememberTurnFailure(turnId, failure),
-      hasTurnMadeProgress: (turnId) => this.turnMadeProgress.has(turnId),
-      suppressGoalResume: (turnId) => this.goalResumeSuppressedByTurn.add(turnId)
+      hasTurnMadeProgress: (turnId) => this.goalTurns.hasMadeProgress(turnId),
+      suppressGoalResume: (turnId) => this.goalTurns.suppressResume(turnId)
     })
     this.turnContextResolver = new TurnContextResolver({
       toolHost: opts.toolHost,
@@ -427,16 +384,6 @@ export class AgentLoop {
       ...(opts.blockedToolNames ? { blockedToolNames: opts.blockedToolNames } : {}),
       ...(opts.blockedSkillIds ? { blockedSkillIds: opts.blockedSkillIds } : {}),
       ...(opts.runtimeDataDir ? { runtimeDataDir: opts.runtimeDataDir } : {})
-    })
-    this.goalResume = new GoalResumeCoordinator({
-      launch: (threadId) => this.launchGoalResumeTurn(threadId),
-      getActiveGoalKey: async (threadId) => {
-        const goal = (await this.opts.threadStore.get(threadId))?.goal
-        return goal && goal.status === 'active' ? goalResumeKey(threadId, goal) : null
-      },
-      isThreadBusy: async (threadId) =>
-        (await this.opts.threadStore.get(threadId))?.status === 'running',
-      ...this.opts.goalResume
     })
   }
 
@@ -454,7 +401,7 @@ export class AgentLoop {
 
   /** Cancel any pending goal auto-resume timers (called on runtime shutdown). */
   shutdownGoalResume(): void {
-    this.goalResume.shutdown()
+    this.goalTurns.shutdown()
   }
 
   /**
@@ -464,11 +411,7 @@ export class AgentLoop {
    * threads are never auto-started on boot.
    */
   async resumeInterruptedGoals(threadIds: readonly string[]): Promise<number> {
-    let resumed = 0
-    for (const threadId of threadIds) {
-      if (await this.goalResume.resumeInterrupted(threadId)) resumed += 1
-    }
-    return resumed
+    return this.goalTurns.resumeInterruptedGoals(threadIds)
   }
 
   /**
@@ -560,7 +503,7 @@ export class AgentLoop {
       return finalStatus
     }
     try {
-      goalTimer = await this.startGoalElapsedTimer(threadId)
+      goalTimer = await this.goalTurns.begin(threadId)
       await this.recordPipelineStage(threadId, turnId, 'setup')
       if (!delegatedSdkRuntime && this.opts.toolStorm?.enabled !== false) {
         this.toolStormBreakers.set(turnId, new ToolStormBreaker(this.opts.toolStorm))
@@ -651,16 +594,17 @@ export class AgentLoop {
         // Accounting/resume are post-settlement conveniences. A late store or
         // event failure must not hide an already durable terminal outcome, nor
         // skip the unconditional transient-state cleanup below.
-        await this.finishGoalElapsedTimer(threadId, goalTimer).catch(() => undefined)
-        // Decide cross-turn goal resume before clearing the per-turn progress
-        // marker it reads.
-        await this.evaluateGoalResume(threadId, turnId, finalStatus ?? 'failed').catch(() => undefined)
+        await this.goalTurns.afterTerminal({
+          threadId,
+          turnId,
+          finalStatus: finalStatus ?? 'failed',
+          timer: goalTimer
+        })
       } finally {
         this.modelRouting.clear(threadId, turnId)
         this.toolStormBreakers.delete(turnId)
         this.roundOutcome.clearTurn(turnId)
-        this.turnMadeProgress.delete(turnId)
-        this.goalResumeSuppressedByTurn.delete(turnId)
+        this.goalTurns.clearTurn(turnId)
         this.turnFailures.delete(turnId)
         this.telemetry.clearPromptPressure(threadId)
         await runTurnEndLifecycleHooks(this.lifecycleHookDeps(), {
@@ -755,173 +699,6 @@ export class AgentLoop {
     this.turnFailures.set(turnId, failure)
   }
 
-  private nowMs(): number {
-    return this.opts.nowMs?.() ?? Date.now()
-  }
-
-  private async startGoalElapsedTimer(threadId: string): Promise<GoalElapsedTimer | null> {
-    const thread = await this.opts.threadStore.get(threadId)
-    const goal = thread?.goal
-    if (!goal || goal.status !== 'active') return null
-    return {
-      startedAtMs: this.nowMs(),
-      createdAt: goal.createdAt,
-      objective: goal.objective
-    }
-  }
-
-  private async finishGoalElapsedTimer(
-    threadId: string,
-    timer: GoalElapsedTimer | null
-  ): Promise<void> {
-    if (!timer) return
-    const elapsedSeconds = Math.floor(Math.max(0, this.nowMs() - timer.startedAtMs) / 1000)
-    if (elapsedSeconds <= 0) return
-
-    const goal = await this.mutateThread(threadId, async (current) => {
-      const currentGoal = current.goal
-      if (!currentGoal) return null
-      if (currentGoal.createdAt !== timer.createdAt || currentGoal.objective !== timer.objective) {
-        return null
-      }
-
-      const now = this.opts.nowIso()
-      const next: ThreadGoal = {
-        ...currentGoal,
-        timeUsedSeconds: (currentGoal.timeUsedSeconds ?? 0) + elapsedSeconds,
-        updatedAt: now
-      }
-      await this.opts.threadStore.upsert(touchThread({ ...current, goal: next }, now))
-      return next
-    })
-    if (!goal) return
-    await this.opts.events.record({
-      kind: 'goal_updated',
-      threadId,
-      goal
-    })
-  }
-
-  /**
-   * Decide whether to auto-resume the goal after a turn settles (path B).
-   *
-   * A goal still `active` once the turn ends means the model never marked it
-   * complete or blocked, so the objective is unfinished and nothing is running
-   * (KunAgent/Kun#370). Mirroring codex's idle-relaunch-while-active policy, we
-   * drive a fresh continuation turn — routed through the backoff coordinator —
-   * not only after a `failed` turn (error / step-budget) but also after a
-   * `completed` turn that left the goal active (e.g. the model stopped early or
-   * its output was truncated). Without this, such a clean stop stranded the
-   * goal with the banner still showing "in progress" until the user nudged it.
-   *
-   * Deliberate stops are never relaunched: a plan turn, a user interrupt or
-   * shutdown (`aborted`), and the caps that set `goalResumeSuppressedByTurn`
-   * (cost-budget exhaustion, or a repetition stall that made no real progress
-   * — relaunching those would just re-hit the budget or reproduce the filler).
-   * A repetition stall that *did* make progress first (e.g. edited files, then
-   * trailed off) is not suppressed: it resumes like any other unfinished turn.
-   * When the consecutive no-progress budget is exhausted the goal is moved to
-   * `blocked` so the banner reflects reality.
-   */
-  private async evaluateGoalResume(
-    threadId: string,
-    turnId: string,
-    finalStatus: 'completed' | 'failed' | 'aborted'
-  ): Promise<void> {
-    const thread = await this.opts.threadStore.get(threadId)
-    const goal = thread?.goal
-    if (!thread || !goal || goal.status !== 'active') {
-      this.goalResume.clear(threadId)
-      return
-    }
-    const turn = thread.turns.find((t) => t.id === turnId)
-    const wasPlanTurn = turn?.mode === 'plan' || Boolean(turn?.guiPlan)
-    const deliberateStop = this.goalResumeSuppressedByTurn.has(turnId)
-    if (finalStatus === 'aborted' || wasPlanTurn || deliberateStop) {
-      this.goalResume.clear(threadId)
-      return
-    }
-    const outcome = this.goalResume.noteGoalTurnSettled({
-      threadId,
-      goalKey: goalResumeKey(threadId, goal),
-      madeProgress: this.turnMadeProgress.has(turnId)
-    })
-    if (outcome === 'exhausted') {
-      await this.transitionGoalStatus(
-        threadId,
-        turnId,
-        'blocked',
-        `Goal auto-resume stopped: ${DEFAULT_MAX_GOAL_RESUME_NO_PROGRESS_ATTEMPTS} consecutive attempts made no progress. Set the goal active again to retry.`
-      )
-    }
-  }
-
-  /** Start and drive a fresh continuation turn for the thread's active goal. */
-  private async launchGoalResumeTurn(threadId: string): Promise<void> {
-    const thread = await this.opts.threadStore.get(threadId)
-    const goal = thread?.goal
-    if (!thread || !goal || goal.status !== 'active') return
-    // Inherit headless/IM gating from the most recent turn so a resumed turn
-    // doesn't deadlock awaiting user input that will never arrive.
-    const lastTurn = thread.turns[thread.turns.length - 1]
-    let started
-    try {
-      started = await this.opts.turns.startTurn({
-        threadId,
-        request: {
-          prompt: GOAL_RESUME_PROMPT,
-          mode: 'agent',
-          ...(lastTurn?.disableUserInput ? { disableUserInput: true } : {})
-        }
-      })
-    } catch (error) {
-      if (error instanceof TurnCapacityError) {
-        this.goalResume.defer(threadId)
-        return
-      }
-      throw error
-    }
-    await this.opts.events.record({
-      kind: 'error',
-      threadId,
-      turnId: started.turnId,
-      message: 'Auto-resuming the active goal after an interrupted turn.',
-      code: 'goal_auto_resume',
-      severity: 'warning'
-    })
-    // Fire-and-forget: the new turn drives its own lifecycle and re-enters
-    // evaluateGoalResume when it settles.
-    void this.runTurn(threadId, started.turnId)
-  }
-
-  /** Move a goal out of `active` (e.g. to `blocked`) and surface why. */
-  private async transitionGoalStatus(
-    threadId: string,
-    turnId: string,
-    status: ThreadGoal['status'],
-    message?: string
-  ): Promise<void> {
-    const next = await this.mutateThread(threadId, async (current) => {
-      const goal = current.goal
-      if (!goal || goal.status === status) return null
-      const now = this.opts.nowIso()
-      const updated: ThreadGoal = { ...goal, status, updatedAt: now }
-      await this.opts.threadStore.upsert(touchThread({ ...current, goal: updated }, now))
-      return updated
-    })
-    if (!next) return
-    await this.opts.events.record({ kind: 'goal_updated', threadId, goal: next })
-    if (message) {
-      await this.opts.events.record({
-        kind: 'error',
-        threadId,
-        turnId,
-        message,
-        code: 'goal_auto_resume_exhausted',
-        severity: 'warning'
-      })
-    }
-  }
 
   private async drainSteering(threadId: string, turnId: string, signal: AbortSignal): Promise<void> {
     const pending = this.opts.steering.drain(turnId)
@@ -1006,7 +783,7 @@ export class AgentLoop {
       // A cost-budget stop is a deliberate cap, not an interrupted goal turn:
       // suppress goal auto-resume so it isn't relaunched straight back into
       // the same exhausted budget.
-      this.goalResumeSuppressedByTurn.add(turnId)
+      this.goalTurns.suppressResume(turnId)
       if (dedicatedSvgTurn) {
         const persistedCompletion = svgArtifactCompletionState(
           await this.opts.sessionStore.loadItems(threadId),
@@ -1430,11 +1207,7 @@ export class AgentLoop {
       dispatch: input,
       context,
       stormBreaker: this.toolStormBreakers.get(input.turnId),
-      onToolExecuted: (toolName) => {
-        if (!GOAL_NON_PROGRESS_TOOL_NAMES.has(toolName)) {
-          this.turnMadeProgress.add(input.turnId)
-        }
-      }
+      onToolExecuted: (toolName) => this.goalTurns.noteToolExecuted(input.turnId, toolName)
     })
   }
 
@@ -1584,24 +1357,7 @@ export class AgentLoop {
   }
 
   private async recordGoalUsage(threadId: string, tokenDelta: number): Promise<void> {
-    const delta = Math.max(0, Math.floor(tokenDelta))
-    if (delta === 0) return
-    const goal = await this.mutateThread(threadId, async (thread) => {
-      if (!thread.goal || thread.goal.status !== 'active') return null
-      const tokensUsed = thread.goal.tokensUsed + delta
-      const next: ThreadGoal = {
-        ...thread.goal,
-        tokensUsed,
-        status: thread.goal.tokenBudget !== undefined && thread.goal.tokenBudget !== null && tokensUsed >= thread.goal.tokenBudget
-          ? 'usageLimited'
-          : 'active',
-        updatedAt: this.opts.nowIso()
-      }
-      await this.opts.threadStore.upsert(touchThread({ ...thread, goal: next }, next.updatedAt))
-      return next
-    })
-    if (!goal) return
-    await this.opts.events.record({ kind: 'goal_updated', threadId, goal })
+    await this.goalTurns.recordUsage(threadId, tokenDelta)
   }
 
   /** Convenience factory for tests: builds a loop with sensible defaults. */
