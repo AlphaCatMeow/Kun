@@ -10,7 +10,7 @@
 - [x] 1.4 Make approval and user-input gates addressable before their requested
   events are published, and serialize user-input resolution event persistence
   with settlement so cancellation cannot create a contradictory projection.
-- [ ] 1.5 Characterize normal, tool, approval/user-input, cancellation/deletion,
+- [x] 1.5 Characterize normal, tool, approval/user-input, cancellation/deletion,
   compaction, and failure turns using the transcript fixture.
 
 ## 2. Revision-aware history commits

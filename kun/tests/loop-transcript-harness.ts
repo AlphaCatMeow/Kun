@@ -90,6 +90,15 @@ export type ToolExecutionTrace = {
   arguments: TranscriptValue
 }
 
+type RawToolExecutionTrace = Omit<ToolExecutionTrace, 'arguments'> & {
+  arguments: unknown
+}
+
+type TranscriptNormalizationState = {
+  inputIds: Map<string, string>
+  nextInputId: number
+}
+
 export type LoopTranscript = {
   status: TurnStatus
   modelRequests: NormalizedModelRequest[]
@@ -116,7 +125,7 @@ export type ModelScript =
 export class ScriptedCapturingModel implements ModelClient {
   readonly provider: string
   readonly model: string
-  readonly requests: NormalizedModelRequest[] = []
+  readonly requests: ModelRequest[] = []
   private callIndex = 0
 
   constructor(
@@ -128,7 +137,7 @@ export class ScriptedCapturingModel implements ModelClient {
   }
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
-    this.requests.push(normalizeModelRequest(request))
+    this.requests.push(request)
     const callIndex = this.callIndex
     this.callIndex += 1
     const script = this.scripts[callIndex] ?? []
@@ -144,7 +153,7 @@ export class ScriptedCapturingModel implements ModelClient {
  * tool host, approval, sandbox, and result behavior underneath.
  */
 export class CapturingToolHost extends LocalToolHost {
-  readonly executions: ToolExecutionTrace[] = []
+  readonly executions: RawToolExecutionTrace[] = []
 
   override async execute(
     call: ToolCallLike,
@@ -156,7 +165,7 @@ export class CapturingToolHost extends LocalToolHost {
       toolName: call.toolName,
       ...(call.providerId ? { providerId: call.providerId } : {}),
       ...(call.toolKind ? { toolKind: call.toolKind } : {}),
-      arguments: normalizeTranscriptValue(call.arguments)
+      arguments: call.arguments
     })
     return super.execute(call, context, onUpdate)
   }
@@ -184,36 +193,42 @@ export async function captureTranscript(input: {
     input.harness.sessionStore.loadItems(input.harness.threadId),
     input.harness.threadStore.get(input.harness.threadId)
   ])
+  const normalizer = createTranscriptNormalizationState()
   const turn = thread?.turns.find((candidate) => candidate.id === input.harness.turnId) ?? null
   return {
     status: input.status,
-    modelRequests: [...input.model.requests],
-    events: events.map(normalizeRuntimeEvent),
-    eventProjection: normalizeTranscriptValue(replayRuntimeEvents(events)),
-    sessionItems: sessionItems.map(normalizeTurnItem),
-    thread: thread ? normalizeThread(thread) : null,
-    turn: turn ? normalizeTurn(turn) : null,
-    usage: normalizeTranscriptValue(input.harness.usage.forThread(input.harness.threadId)),
-    toolExecutionOrder: [...(input.toolHost?.executions ?? [])]
+    modelRequests: input.model.requests.map((request) => normalizeModelRequest(request, normalizer)),
+    events: events.map((event) => normalizeRuntimeEvent(event, normalizer)),
+    eventProjection: normalizeTranscriptValue(replayRuntimeEvents(events), normalizer),
+    sessionItems: sessionItems.map((item) => normalizeTurnItem(item, normalizer)),
+    thread: thread ? normalizeThread(thread, normalizer) : null,
+    turn: turn ? normalizeTurn(turn, normalizer) : null,
+    usage: normalizeTranscriptValue(input.harness.usage.forThread(input.harness.threadId), normalizer),
+    toolExecutionOrder: (input.toolHost?.executions ?? []).map((execution) =>
+      normalizeToolExecution(execution, normalizer)
+    )
   }
 }
 
-export function normalizeModelRequest(request: ModelRequest): NormalizedModelRequest {
+export function normalizeModelRequest(
+  request: ModelRequest,
+  normalizer = createTranscriptNormalizationState()
+): NormalizedModelRequest {
   return {
-    threadId: request.threadId,
-    turnId: request.turnId,
+    threadId: normalizeText(request.threadId, normalizer, true),
+    turnId: normalizeText(request.turnId, normalizer, true),
     model: request.model,
-    ...(request.providerId ? { providerId: request.providerId } : {}),
-    ...(request.systemPrompt ? { systemPrompt: normalizeText(request.systemPrompt) } : {}),
-    ...(request.modeInstruction ? { modeInstruction: normalizeText(request.modeInstruction) } : {}),
-    contextInstructions: (request.contextInstructions ?? []).map(normalizeText),
-    prefix: request.prefix.map(normalizeTurnItem),
-    history: request.history.map(normalizeTurnItem),
+    ...(request.providerId ? { providerId: normalizeText(request.providerId, normalizer) } : {}),
+    ...(request.systemPrompt ? { systemPrompt: normalizeText(request.systemPrompt, normalizer) } : {}),
+    ...(request.modeInstruction ? { modeInstruction: normalizeText(request.modeInstruction, normalizer) } : {}),
+    contextInstructions: (request.contextInstructions ?? []).map((text) => normalizeText(text, normalizer)),
+    prefix: request.prefix.map((item) => normalizeTurnItem(item, normalizer)),
+    history: request.history.map((item) => normalizeTurnItem(item, normalizer)),
     tools: request.tools.map((tool) => ({
       name: tool.name,
-      description: normalizeText(tool.description),
+      description: normalizeText(tool.description, normalizer),
       ...(tool.toolKind ? { toolKind: tool.toolKind } : {}),
-      inputSchema: normalizeTranscriptValue(tool.inputSchema)
+      inputSchema: normalizeTranscriptValue(tool.inputSchema, normalizer)
     })),
     ...(request.requiredToolName ? { requiredToolName: request.requiredToolName } : {}),
     ...(request.stream !== undefined ? { stream: request.stream } : {}),
@@ -222,52 +237,77 @@ export function normalizeModelRequest(request: ModelRequest): NormalizedModelReq
     ...(request.topP !== undefined ? { topP: request.topP } : {}),
     ...(request.responseFormat ? { responseFormat: request.responseFormat } : {}),
     ...(request.reasoningEffort ? { reasoningEffort: request.reasoningEffort } : {}),
-    ...(request.attachments ? { attachments: normalizeTranscriptValue(request.attachments) } : {}),
+    ...(request.attachments ? { attachments: normalizeTranscriptValue(request.attachments, normalizer) } : {}),
     ...(request.attachmentTextFallbacks
-      ? { attachmentTextFallbacks: normalizeTranscriptValue(request.attachmentTextFallbacks) }
+      ? { attachmentTextFallbacks: normalizeTranscriptValue(request.attachmentTextFallbacks, normalizer) }
       : {}),
     ...(request.attachmentDocuments
-      ? { attachmentDocuments: normalizeTranscriptValue(request.attachmentDocuments) }
+      ? { attachmentDocuments: normalizeTranscriptValue(request.attachmentDocuments, normalizer) }
       : {})
   }
 }
 
-export function normalizeRuntimeEvent(event: RuntimeEvent): NormalizedRuntimeEvent {
+export function normalizeRuntimeEvent(
+  event: RuntimeEvent,
+  normalizer = createTranscriptNormalizationState()
+): NormalizedRuntimeEvent {
   return {
-    ...(normalizeTranscriptValue(event) as NormalizedRecord),
+    ...(normalizeTranscriptValue(event, normalizer) as NormalizedRecord),
     kind: event.kind,
     seq: event.seq
   }
 }
 
-export function normalizeTurnItem(item: TurnItem): NormalizedTurnItem {
+export function normalizeTurnItem(
+  item: TurnItem,
+  normalizer = createTranscriptNormalizationState()
+): NormalizedTurnItem {
   return {
-    ...(normalizeTranscriptValue(item) as NormalizedRecord),
-    id: item.id,
-    threadId: item.threadId,
-    turnId: item.turnId,
+    ...(normalizeTranscriptValue(item, normalizer) as NormalizedRecord),
+    id: normalizeText(item.id, normalizer, true),
+    threadId: normalizeText(item.threadId, normalizer, true),
+    turnId: normalizeText(item.turnId, normalizer, true),
     kind: item.kind,
     role: item.role,
     status: item.status
   }
 }
 
-export function normalizeTurn(turn: Turn): NormalizedTurn {
+export function normalizeTurn(
+  turn: Turn,
+  normalizer = createTranscriptNormalizationState()
+): NormalizedTurn {
   return {
-    ...(normalizeTranscriptValue(turn) as NormalizedRecord),
-    id: turn.id,
-    threadId: turn.threadId,
+    ...(normalizeTranscriptValue(turn, normalizer) as NormalizedRecord),
+    id: normalizeText(turn.id, normalizer, true),
+    threadId: normalizeText(turn.threadId, normalizer, true),
     status: turn.status,
-    items: turn.items.map(normalizeTurnItem)
+    items: turn.items.map((item) => normalizeTurnItem(item, normalizer))
   }
 }
 
-export function normalizeThread(thread: ThreadRecord): NormalizedThread {
+export function normalizeThread(
+  thread: ThreadRecord,
+  normalizer = createTranscriptNormalizationState()
+): NormalizedThread {
   return {
-    ...(normalizeTranscriptValue(thread) as NormalizedRecord),
-    id: thread.id,
+    ...(normalizeTranscriptValue(thread, normalizer) as NormalizedRecord),
+    id: normalizeText(thread.id, normalizer, true),
     status: thread.status,
-    turns: thread.turns.map(normalizeTurn)
+    turns: thread.turns.map((turn) => normalizeTurn(turn, normalizer))
+  }
+}
+
+function normalizeToolExecution(
+  execution: RawToolExecutionTrace,
+  normalizer: TranscriptNormalizationState
+): ToolExecutionTrace {
+  return {
+    ...execution,
+    callId: normalizeText(execution.callId, normalizer, true),
+    toolName: normalizeText(execution.toolName, normalizer),
+    ...(execution.providerId ? { providerId: normalizeText(execution.providerId, normalizer) } : {}),
+    arguments: normalizeTranscriptValue(execution.arguments, normalizer)
   }
 }
 
@@ -275,15 +315,19 @@ export function normalizeThread(thread: ThreadRecord): NormalizedThread {
  * Sort object keys and remove wall-clock fields so assertions describe the
  * compatibility contract, not the incidental implementation timestamps.
  */
-export function normalizeTranscriptValue(value: unknown): TranscriptValue {
+export function normalizeTranscriptValue(
+  value: unknown,
+  normalizer = createTranscriptNormalizationState(),
+  field?: string
+): TranscriptValue {
   if (value === null || typeof value === 'boolean' || typeof value === 'number') return value
-  if (typeof value === 'string') return normalizeText(value)
-  if (Array.isArray(value)) return value.map(normalizeTranscriptValue)
+  if (typeof value === 'string') return normalizeText(value, normalizer, isIdentifierField(field))
+  if (Array.isArray(value)) return value.map((entry) => normalizeTranscriptValue(entry, normalizer, field))
   if (typeof value === 'object') {
     const normalized: { [key: string]: TranscriptValue } = {}
     for (const [key, nested] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
       if (isVolatileTranscriptField(key) || nested === undefined) continue
-      normalized[key] = normalizeTranscriptValue(nested)
+      normalized[key] = normalizeTranscriptValue(nested, normalizer, key)
     }
     return normalized
   }
@@ -305,10 +349,49 @@ function isVolatileTranscriptField(field: string): boolean {
     field === 'finishedAt'
 }
 
-function normalizeText(value: string): string {
-  return value
+function createTranscriptNormalizationState(): TranscriptNormalizationState {
+  return {
+    inputIds: new Map(),
+    nextInputId: 0
+  }
+}
+
+function normalizeText(
+  value: string,
+  normalizer: TranscriptNormalizationState,
+  normalizeIdentifier = false
+): string {
+  const normalized = value
     // ISO values occur in runtime-context prompt injection and event payloads.
     .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z\b/g, '<timestamp>')
     // Localized runtime-context prompt injection has a user-local clock.
     .replace(/\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\b/g, '<local-time>')
+  return normalizeIdentifier ? normalizeGeneratedInputIdentifier(normalized, normalizer) : normalized
+}
+
+function isIdentifierField(field: string | undefined): boolean {
+  return field === 'id' ||
+    field === 'threadId' ||
+    field === 'turnId' ||
+    field === 'itemId' ||
+    field === 'inputId' ||
+    field === 'callId' ||
+    field === 'approvalId' ||
+    field === 'sourceItemIds' ||
+    field === 'itemIds' ||
+    field === 'pendingUserInputIds'
+}
+
+function normalizeGeneratedInputIdentifier(
+  value: string,
+  normalizer: TranscriptNormalizationState
+): string {
+  const match = /^(item_)?(in_[a-z0-9]{8})(?![a-z0-9])((?:_[a-z0-9]+)*)$/i.exec(value)
+  if (!match) return value
+  const [, itemPrefix, inputId, suffix] = match
+  const normalizedInput = normalizer.inputIds.get(inputId)
+    ?? `<input_${++normalizer.nextInputId}>`
+  normalizer.inputIds.set(inputId, normalizedInput)
+  if (!itemPrefix) return `${normalizedInput}${suffix}`
+  return `<item_${normalizedInput.slice(1, -1)}>${suffix}`
 }
