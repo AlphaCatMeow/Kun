@@ -64,8 +64,8 @@ function shape(id: string): CanvasShape {
 }
 
 describe('design-md-compat', () => {
-  it('uses a project-level DESIGN.md path under .kun-design', () => {
-    expect(STITCH_DESIGN_MD_PATH).toBe('.kun-design/DESIGN.md')
+  it('keeps the generated handoff separate from root DESIGN.md', () => {
+    expect(STITCH_DESIGN_MD_PATH).toBe('.kun-design/HANDOFF.md')
   })
 
   it('exports context, tokens, components, screens, and prototype flow', () => {

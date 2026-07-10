@@ -33,10 +33,10 @@ const designState = {
 
 describe('design code roundtrip', () => {
   it('prepares a design-to-code implementation turn from the structured design system', async () => {
-    const content = serializeProjectDesignSystem(createProjectDesignSystem('Product UI'))
+    const content = `---\nname: Product UI\ncolors:\n  primary: '#336699'\n---\n# Colors\n`
     const readWorkspaceFile = vi.fn(async () => ({
       ok: true as const,
-      path: '/workspace/.kun-design/design-system.json',
+      path: '/workspace/DESIGN.md',
       content,
       size: content.length,
       truncated: false,
@@ -53,12 +53,12 @@ describe('design code roundtrip', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(readWorkspaceFile).toHaveBeenCalledWith(expect.objectContaining({
-      path: '.kun-design/design-system.json',
+      path: 'DESIGN.md',
       workspaceRoot: '/workspace'
     }))
     expect(result.designSystemHash).toBeTruthy()
     expect(result.prompt).toContain('Design source (a standalone HTML mockup): .kun-design/doc/html_1/v1.html')
-    expect(result.prompt).toContain('Project design system: .kun-design/design-system.json')
+    expect(result.prompt).toContain('Project design system: DESIGN.md')
     expect(result.prompt).toContain('Target stack: React + Tailwind')
     expect(result.prompt).toContain('Read the design notes `.kun-design/doc/html_1/DESIGN.md`')
   })
@@ -74,7 +74,7 @@ describe('design code roundtrip', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.designSystemHash).toBeUndefined()
-    expect(result.prompt).not.toContain('Project design system: .kun-design/design-system.json')
+    expect(result.prompt).not.toContain('Project design system: DESIGN.md')
   })
 
   it('rejects non-html artifacts for implementation', async () => {
@@ -108,8 +108,8 @@ describe('design code roundtrip', () => {
       api: {
         readWorkspaceFile: vi.fn(async () => ({
           ok: true as const,
-          path: '/workspace/.kun-design/design-system.json',
-          content: serializeProjectDesignSystem(createProjectDesignSystem('Product UI')),
+          path: '/workspace/DESIGN.md',
+          content: `---\nname: Product UI\ncolors:\n  primary: '#336699'\n---\n# Colors\n`,
           size: 200,
           truncated: false,
           readAt: now

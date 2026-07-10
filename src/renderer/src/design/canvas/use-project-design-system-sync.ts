@@ -1,46 +1,86 @@
 import { useEffect } from 'react'
+import { parseProjectDesignMdWithOfficialLint, projectDesignMdHash } from '../design-md/design-md-adapter'
+import { PROJECT_DESIGN_MD_PATH } from '../design-md/design-md-paths'
+import { mapProjectDesignMdToNative, removeProjectDesignMdNativeTokens, serializeNativeDesignSystemAsDesignMd } from '../design-md/design-md-native-mapping'
 import { useDesignSystemStore } from './design-system-store'
-import { createEmptyDesignSystem } from './design-system-types'
-import {
-  PROJECT_DESIGN_SYSTEM_PATH,
-  createProjectDesignSystem,
-  parseProjectDesignSystem,
-  projectDesignSystemFromSystem,
-  projectDesignSystemHash,
-  serializeProjectDesignSystem,
-  type ProjectDesignSystemV1
-} from './project-design-system'
 import { useProjectDesignSystemStore } from './project-design-system-store'
 
-const SAVE_DEBOUNCE_MS = 300
-const MISSING_POLL_MS = 1_500
+const WATCH_RECOVERY_MS = 1_500
+const saveQueues = new Map<string, { key: string; promise: Promise<boolean> }>()
 
-export async function createProjectDesignSystemFile(
-  workspaceRoot: string,
-  name = 'Project design system'
-): Promise<boolean> {
-  if (!workspaceRoot || typeof window.kunGui?.writeWorkspaceFile !== 'function') return false
-  const document = createProjectDesignSystem(name)
-  const result = await window.kunGui.writeWorkspaceFile({
-    path: PROJECT_DESIGN_SYSTEM_PATH,
-    workspaceRoot,
-    content: serializeProjectDesignSystem(document)
-  }).catch(() => null)
-  return Boolean(result?.ok)
+export function projectDesignMdExternalRevisionDecision(
+  draft: { dirty: boolean; baseHash: string } | null,
+  nextHash: string
+): 'apply' | 'ignore-base-replay' | 'conflict' {
+  if (!draft?.dirty) return 'apply'
+  return draft.baseHash === nextHash ? 'ignore-base-replay' : 'conflict'
+}
+
+async function saveProjectDesignMdNow(workspaceRoot: string, content: string, expectedHash: string): Promise<boolean> {
+  const api = window.kunGui
+  if (!workspaceRoot || !api?.readWorkspaceFile || !api.writeWorkspaceFile) return false
+  const current = await api.readWorkspaceFile({ path: PROJECT_DESIGN_MD_PATH, workspaceRoot }).catch(() => null)
+  const currentContent = current?.ok ? current.content : ''
+  const currentHash = current?.ok ? projectDesignMdHash(currentContent) : ''
+  if (useProjectDesignSystemStore.getState().workspaceRoot !== workspaceRoot) return false
+  if (currentHash !== expectedHash) {
+    useProjectDesignSystemStore.getState().setConflict({ baseHash: expectedHash, currentHash, draftContent: content, currentContent })
+    return false
+  }
+  const parsed = await parseProjectDesignMdWithOfficialLint(content)
+  if (!parsed.ok || !parsed.document) {
+    useProjectDesignSystemStore.getState().setInvalid(parsed.diagnostics)
+    return false
+  }
+  useProjectDesignSystemStore.getState().setSaving()
+  const written = await api.writeWorkspaceFile({ path: PROJECT_DESIGN_MD_PATH, workspaceRoot, content }).catch(() => null)
+  if (useProjectDesignSystemStore.getState().workspaceRoot !== workspaceRoot) return false
+  if (!written?.ok) {
+    useProjectDesignSystemStore.getState().setDraft(content)
+    return false
+  }
+  useProjectDesignSystemStore.getState().setReady(parsed.document)
+  const native = useDesignSystemStore.getState()
+  native.loadSystem(mapProjectDesignMdToNative(parsed.document, native.system))
+  return true
+}
+
+export function saveProjectDesignMd(workspaceRoot: string, content: string, expectedHash: string): Promise<boolean> {
+  const key = `${expectedHash}:${projectDesignMdHash(content)}`
+  const active = saveQueues.get(workspaceRoot)
+  if (active?.key === key) return active.promise
+  const previous = active?.promise ?? Promise.resolve(true)
+  const queued = previous.catch(() => false).then(() => saveProjectDesignMdNow(workspaceRoot, content, expectedHash))
+  saveQueues.set(workspaceRoot, { key, promise: queued })
+  void queued.finally(() => {
+    if (saveQueues.get(workspaceRoot)?.promise === queued) saveQueues.delete(workspaceRoot)
+  })
+  return queued
+}
+
+/** Persist only after an explicit design_system operation; ordinary document-sidecar loads must never create DESIGN.md. */
+export async function persistNativeDesignSystemToProjectDesignMd(workspaceRoot: string): Promise<boolean> {
+  const project = useProjectDesignSystemStore.getState()
+  const content = serializeNativeDesignSystemAsDesignMd(
+    useDesignSystemStore.getState().system,
+    project.document
+  )
+  project.setDraft(content)
+  return saveProjectDesignMd(workspaceRoot, content, project.document?.sourceHash ?? '')
 }
 
 export function useProjectDesignSystemSync(workspaceRoot: string, enabled: boolean): void {
   useEffect(() => {
     if (!enabled || !workspaceRoot) return
     const api = window.kunGui
-    if (!api?.readWorkspaceFile || !api.writeWorkspaceFile) return
-
+    if (!api?.readWorkspaceFile) return
     let cancelled = false
     let applyingExternal = false
-    let saveTimer: ReturnType<typeof setTimeout> | null = null
-    let pollTimer: ReturnType<typeof setTimeout> | null = null
+    let generation = 0
+    let applyGeneration = 0
     let watchId: string | null = null
     let offChanged: (() => void) | null = null
+    let recoveryTimer: ReturnType<typeof setTimeout> | null = null
 
     const clearWatch = (): void => {
       offChanged?.()
@@ -48,129 +88,86 @@ export function useProjectDesignSystemSync(workspaceRoot: string, enabled: boole
       if (watchId && api.unwatchWorkspaceFile) void api.unwatchWorkspaceFile(watchId).catch(() => undefined)
       watchId = null
     }
-
-    const schedulePoll = (load: () => Promise<void>): void => {
-      if (cancelled || pollTimer) return
-      pollTimer = setTimeout(() => {
-        pollTimer = null
-        void load()
-      }, MISSING_POLL_MS)
-    }
-
-    const applyContent = (content: string): boolean => {
-      const hash = projectDesignSystemHash(content)
+    useProjectDesignSystemStore.getState().activateWorkspace(workspaceRoot)
+    const apply = async (content: string, truncated = false): Promise<void> => {
+      const requestGeneration = ++applyGeneration
       const state = useProjectDesignSystemStore.getState()
-      if (state.sourceHash === hash && state.status === 'ready') return true
-      const parsed = parseProjectDesignSystem(content)
-      if (!parsed.ok) {
-        state.setInvalid(parsed.errors)
-        return false
+      const nextHash = projectDesignMdHash(content)
+      const decision = projectDesignMdExternalRevisionDecision(state.draft, nextHash)
+      if (decision !== 'apply') {
+        if (decision === 'conflict' && state.draft) {
+          state.setConflict({ baseHash: state.draft.baseHash, currentHash: nextHash, draftContent: state.draft.content, currentContent: content })
+        }
+        // A watcher/poll replay of the unchanged base revision must not erase
+        // an unsaved inspector draft.
+        return
       }
-      applyingExternal = true
-      useDesignSystemStore.getState().loadSystem({
-        tokens: parsed.document.tokens,
-        components: parsed.document.components
-      })
-      state.setReady(parsed.document, hash)
-      applyingExternal = false
-      return true
+      const parsed = await parseProjectDesignMdWithOfficialLint(content, { truncated })
+      if (cancelled || requestGeneration !== applyGeneration) return
+      const latest = useProjectDesignSystemStore.getState()
+      const latestDecision = projectDesignMdExternalRevisionDecision(latest.draft, nextHash)
+      if (latestDecision !== 'apply') {
+        if (latestDecision === 'conflict' && latest.draft) {
+          latest.setConflict({ baseHash: latest.draft.baseHash, currentHash: nextHash, draftContent: latest.draft.content, currentContent: content })
+        }
+        return
+      }
+      if (!parsed.ok || !parsed.document) latest.setInvalid(parsed.diagnostics)
+      else {
+        latest.setReady(parsed.document)
+        const native = useDesignSystemStore.getState()
+        applyingExternal = true
+        native.loadSystem(mapProjectDesignMdToNative(parsed.document, native.system))
+        applyingExternal = false
+      }
     }
-
-    const startWatch = async (): Promise<void> => {
-      if (cancelled || watchId || !api.watchWorkspaceFile || !api.onWorkspaceFileChanged) return
-      offChanged = api.onWorkspaceFileChanged((payload) => {
-        if (!watchId || payload.watchId !== watchId || cancelled) return
-        if (!payload.ok) {
-          clearWatch()
-          useProjectDesignSystemStore.getState().setMissing()
-          useDesignSystemStore.getState().resetSystem()
-          schedulePoll(load)
+    const scheduleRecovery = (load: () => Promise<void>): void => {
+      if (cancelled || recoveryTimer) return
+      recoveryTimer = setTimeout(() => { recoveryTimer = null; void load() }, WATCH_RECOVERY_MS)
+    }
+    const load = async (): Promise<void> => {
+      const requestGeneration = ++generation
+      const result = await api.readWorkspaceFile({ path: PROJECT_DESIGN_MD_PATH, workspaceRoot }).catch(() => null)
+      if (cancelled || requestGeneration !== generation) return
+      if (!result?.ok) {
+        clearWatch()
+        useProjectDesignSystemStore.getState().setMissing()
+        const native = useDesignSystemStore.getState()
+        applyingExternal = true
+        native.loadSystem(removeProjectDesignMdNativeTokens(native.system))
+        applyingExternal = false
+        scheduleRecovery(load)
+        return
+      }
+      await apply(result.content, result.truncated)
+      if (!watchId && api.watchWorkspaceFile && api.onWorkspaceFileChanged) {
+        offChanged = api.onWorkspaceFileChanged((payload) => {
+          if (cancelled || payload.watchId !== watchId) return
+          if (!payload.ok) {
+            clearWatch()
+            void load()
+          } else void apply(payload.content, payload.truncated)
+        })
+        const watch = await api.watchWorkspaceFile({ path: PROJECT_DESIGN_MD_PATH, workspaceRoot }).catch(() => null)
+        if (cancelled) {
+          if (watch?.ok && api.unwatchWorkspaceFile) void api.unwatchWorkspaceFile(watch.watchId).catch(() => undefined)
           return
         }
-        applyContent(payload.content)
-      })
-      const result = await api.watchWorkspaceFile({ path: PROJECT_DESIGN_SYSTEM_PATH, workspaceRoot }).catch(() => null)
-      if (cancelled) {
-        if (result?.ok && api.unwatchWorkspaceFile) void api.unwatchWorkspaceFile(result.watchId).catch(() => undefined)
-        return
+        if (watch?.ok) { watchId = watch.watchId; await apply(watch.content, watch.truncated) }
+        else { offChanged?.(); offChanged = null }
       }
-      if (!result?.ok) {
-        offChanged?.()
-        offChanged = null
-        schedulePoll(load)
-        return
-      }
-      watchId = result.watchId
-      applyContent(result.content)
-    }
-
-    const load = async (): Promise<void> => {
-      if (cancelled) return
-      const result = await api.readWorkspaceFile({ path: PROJECT_DESIGN_SYSTEM_PATH, workspaceRoot }).catch(() => null)
-      if (cancelled) return
-      if (!result?.ok) {
-        useProjectDesignSystemStore.getState().setMissing()
-        applyingExternal = true
-        useDesignSystemStore.getState().loadSystem(createEmptyDesignSystem())
-        applyingExternal = false
-        clearWatch()
-        schedulePoll(load)
-        return
-      }
-      applyContent(result.content)
-      await startWatch()
-      // Keep a low-frequency lifecycle check even while fs.watch is active:
-      // editors commonly save via atomic rename, which can detach a file watcher.
-      schedulePoll(load)
-    }
-
-    const persist = (): void => {
-      if (cancelled || applyingExternal) return
-      const projectState = useProjectDesignSystemStore.getState()
-      if (!projectState.document || projectState.status === 'loading' || projectState.status === 'missing') return
-      if (saveTimer) clearTimeout(saveTimer)
-      saveTimer = setTimeout(() => {
-        saveTimer = null
-        if (cancelled) return
-        const current = useProjectDesignSystemStore.getState()
-        if (!current.document) return
-        const document: ProjectDesignSystemV1 = projectDesignSystemFromSystem(
-          useDesignSystemStore.getState().system,
-          current.document
-        )
-        const content = serializeProjectDesignSystem(document)
-        const hash = projectDesignSystemHash(content)
-        applyingExternal = true
-        current.setReady(document, hash)
-        applyingExternal = false
-        void api.writeWorkspaceFile({ path: PROJECT_DESIGN_SYSTEM_PATH, workspaceRoot, content }).catch(() => undefined)
-      }, SAVE_DEBOUNCE_MS)
+      // Atomic rename saves can detach fs.watch. A bounded recovery read repairs it.
+      scheduleRecovery(load)
     }
 
     useProjectDesignSystemStore.getState().setLoading()
-    const unsubscribeSystem = useDesignSystemStore.subscribe((state, previous) => {
-      if (state.system === previous.system || applyingExternal) return
-      const projectState = useProjectDesignSystemStore.getState()
-      if (projectState.status === 'missing') {
-        const hasContent = Object.keys(state.system.tokens).length > 0 || Object.keys(state.system.components).length > 0
-        if (!hasContent) return
-        const document = projectDesignSystemFromSystem(state.system, createProjectDesignSystem())
-        projectState.setReady(document, '')
-      }
-      persist()
-    })
-    const unsubscribeProject = useProjectDesignSystemStore.subscribe((state, previous) => {
-      if (state.document !== previous.document && state.sourceHash === previous.sourceHash) persist()
-    })
     void load()
-
     return () => {
       cancelled = true
-      if (saveTimer) clearTimeout(saveTimer)
-      if (pollTimer) clearTimeout(pollTimer)
+      generation += 1
+      applyGeneration += 1
+      if (recoveryTimer) clearTimeout(recoveryTimer)
       clearWatch()
-      unsubscribeSystem()
-      unsubscribeProject()
     }
   }, [enabled, workspaceRoot])
 }

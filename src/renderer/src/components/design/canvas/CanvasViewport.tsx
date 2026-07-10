@@ -53,6 +53,7 @@ import {
 import { useCanvasViewportDocumentSync } from './canvas-viewport/use-canvas-viewport-document-sync'
 import { useProjectDesignSystemSync } from '../../../design/canvas/use-project-design-system-sync'
 import { DesignSystemBoardOverlay } from './DesignSystemBoardOverlay'
+import { DesignSystemInspector } from './DesignSystemInspector'
 import { SvgFrameOverlay } from './SvgFrameOverlay'
 import type { CanvasDocument } from '../../../design/canvas/canvas-types'
 
@@ -476,6 +477,7 @@ export function CanvasViewport({
           ref={containerRef}
           className="absolute inset-0 overflow-hidden bg-[#f8fafc] dark:bg-[#111318]"
         >
+          {surface === 'design' ? <DesignSystemInspector workspaceRoot={workspaceRoot} /> : null}
           <AlignmentToolbar />
           {shouldShowCanvasDocumentLoading(document) ? (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-ds-faint">

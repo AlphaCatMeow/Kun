@@ -434,6 +434,7 @@ export const ShapeOpSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('design-system-template'),
     operation: z.enum(['create', 'update', 'apply', 'validate']).default('create'),
+    expectedHash: z.string().optional(),
     name: z.string().optional(),
     seedColor: z.string().optional(),
     mode: z.enum(['light', 'dark', 'both']).optional(),

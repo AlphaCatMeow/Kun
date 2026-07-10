@@ -346,8 +346,8 @@ export function createDesignSystemTemplateTool(): LocalTool {
   return LocalToolHost.defineTool({
     name: DESIGN_SYSTEM_TEMPLATE_TOOL_NAME,
     description: [
-      'Create, update, apply, or validate the structured project design system at .kun-design/design-system.json.',
-      'The Design canvas renders that file with its fixed built-in design-system board. This tool never draws an HTML, SVG, or freeform style-kit board.'
+      'Create, structurally update, apply, or validate the Google-compatible project design system at root DESIGN.md with expected-hash conflict protection.',
+      'The Design canvas reads and renders that file with its fixed built-in specimen board. It preserves Markdown prose and unknown extensions and never draws an HTML, SVG, or freeform style-kit board.'
     ].join(' '),
     toolKind: 'tool_call',
     policy: 'auto',
@@ -356,6 +356,7 @@ export function createDesignSystemTemplateTool(): LocalTool {
       type: 'object',
       properties: {
         operation: { type: 'string', enum: ['create', 'update', 'apply', 'validate'] },
+        expectedHash: { type: 'string', description: 'Last observed exact DESIGN.md source hash. Required for conflict-safe updates when known.' },
         name: { type: 'string' },
         seedColor: { type: 'string', description: 'Primary brand color as #RRGGBB. Defaults to a calibrated blue.' },
         mode: { type: 'string', enum: ['light', 'dark', 'both'] },
@@ -434,7 +435,7 @@ export function createDesignSystemTemplateTool(): LocalTool {
             op: 'lint-design-system',
             ...(Array.isArray(args.targetIds) ? { targetIds: args.targetIds.filter((v): v is string => typeof v === 'string') } : {})
           }
-        ])
+        ], { operation: 'validate' })
       }
       const structuredOps = normalizeStructuredDesignSystemOps(args)
       const hasFoundationInput = Boolean(
@@ -445,6 +446,7 @@ export function createDesignSystemTemplateTool(): LocalTool {
         ops.push({
           op: 'design-system-template',
           operation,
+          ...(stringArg(args.expectedHash) ? { expectedHash: stringArg(args.expectedHash) } : {}),
           ...(stringArg(args.name) ? { name: stringArg(args.name) } : {}),
           ...(stringArg(args.seedColor) ? { seedColor: stringArg(args.seedColor) } : {}),
           ...(oneOf(args.mode, ['light', 'dark', 'both']) ? { mode: oneOf(args.mode, ['light', 'dark', 'both']) } : {}),
@@ -460,7 +462,10 @@ export function createDesignSystemTemplateTool(): LocalTool {
         })
       }
       ops.push(...structuredOps)
-      return designToolOutput(DESIGN_SYSTEM_TEMPLATE_TOOL_NAME, 'design_system', ops)
+      return designToolOutput(DESIGN_SYSTEM_TEMPLATE_TOOL_NAME, 'design_system', ops, {
+        operation,
+        ...(stringArg(args.expectedHash) ? { expectedHash: stringArg(args.expectedHash) } : {})
+      })
     }
   })
 }
@@ -713,12 +718,13 @@ function normalizeArrangeOp(args: Record<string, unknown>):
   return { ok: false, error: 'operation must be align, distribute, stack, grid, or responsive_reflow' }
 }
 
-function designToolOutput(tool: string, action: string, ops: unknown[]): { output: Record<string, unknown> } {
+function designToolOutput(tool: string, action: string, ops: unknown[], extra: Record<string, unknown> = {}): { output: Record<string, unknown> } {
   return {
     output: {
       ok: true,
       tool,
       action,
+      ...extra,
       ops,
       message: `Queued ${ops.length} design operation${ops.length === 1 ? '' : 's'} for the design canvas.`
     }

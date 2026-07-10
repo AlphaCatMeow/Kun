@@ -1,5 +1,5 @@
 import { designSpecPath } from '../design-foundation'
-import { PROJECT_DESIGN_SYSTEM_PATH } from '../canvas/project-design-system'
+import { PROJECT_DESIGN_MD_PATH } from '../design-md/design-md-paths'
 import { buildStitchDesignMarkdown, STITCH_DESIGN_MD_PATH } from '../design-md-compat'
 import type { CanvasDocument } from '../canvas/canvas-types'
 import type { DesignSystem } from '../canvas/design-system-types'
@@ -300,7 +300,7 @@ export function buildDesignProjectContractMarkdown(
     brief: options.designContext.designGuidelines,
     designContext: options.designContext,
     designSystem: options.designSystem,
-    designSystemMdPath: PROJECT_DESIGN_SYSTEM_PATH,
+    designSystemMdPath: PROJECT_DESIGN_MD_PATH,
     projectBriefPath: document ? designSpecPath(document.id) : undefined,
     artifacts,
     updatedAt: options.updatedAt

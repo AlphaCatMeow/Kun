@@ -228,7 +228,7 @@ describe('dedicated design tools', () => {
     expect(JSON.stringify(tool.inputSchema)).toContain('Web -> saas/web components')
     expect(JSON.stringify(tool.inputSchema)).toContain('App -> mobile/app components')
     expect(tool.name).toBe('design_system')
-    expect(tool.description).toContain('.kun-design/design-system.json')
+    expect(tool.description).toContain('root DESIGN.md')
     expect(tool.description).toContain('never draws an HTML, SVG, or freeform style-kit board')
     const result = await tool.execute(
       { name: 'IKUN World', seedColor: '#D4AF37', mode: 'dark', template: 'game' },
@@ -281,6 +281,7 @@ describe('dedicated design tools', () => {
     const tool = createDesignSystemTemplateTool()
     const result = await tool.execute({
       operation: 'update',
+      expectedHash: 'source-123',
       tokens: [{ name: 'brand/primary', kind: 'color', value: '#2563eb' }],
       captureComponents: [{ name: 'Button', fromId: 'shape_button', slots: [{ path: 'label', kind: 'text' }] }],
       variants: [{
@@ -296,6 +297,8 @@ describe('dedicated design tools', () => {
     expect(result.output).toMatchObject({
       ok: true,
       tool: 'design_system',
+      operation: 'update',
+      expectedHash: 'source-123',
       ops: [
         { op: 'define-token', name: 'brand/primary', kind: 'color', value: '#2563eb' },
         { op: 'define-component', name: 'Button', fromId: 'shape_button' },

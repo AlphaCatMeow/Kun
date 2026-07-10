@@ -10,6 +10,7 @@ import {
   findDesignBoardArtifact
 } from './design-board'
 import type { DesignHtmlElementContext } from './design-composer-context'
+import { useProjectDesignSystemStore } from './canvas/project-design-system-store'
 import type { DesignPromptSource } from './design-quality-repair-dispatch'
 import {
   buildDesignTurnSendOverrides,
@@ -187,6 +188,7 @@ export async function submitDesignTurn(
   }
 
   const promptState = getDesignState()
+  const projectDesignMd = useProjectDesignSystemStore.getState()
   const canvasErrorKey = canvasOpErrorKey(options.workspaceRoot, promptState.activeDocumentId, boardArtifact.id)
   let promptPayload: DesignTurnPromptPayload
   try {
@@ -201,6 +203,9 @@ export async function submitDesignTurn(
       visibleTargets: resolvedTarget.visibleTargets,
       canvasDocument: getCanvasShapeState().document,
       designSystem: getDesignSystemState().system,
+      ...(projectDesignMd.workspaceRoot === options.workspaceRoot && projectDesignMd.status === 'ready' && projectDesignMd.sourceHash
+        ? { projectDesignMdSourceHash: projectDesignMd.sourceHash }
+        : {}),
       tokensByArtifact: getDesignTokensState().byArtifact,
       ...(resolvedTarget.designNotesPath ? { designNotesPath: resolvedTarget.designNotesPath } : {}),
       ...(resolvedTarget.basePath ? { basePath: resolvedTarget.basePath } : {}),

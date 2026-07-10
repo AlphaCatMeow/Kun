@@ -112,6 +112,8 @@ export type DesignTurnOptions = {
    * another canvas' global store state.
    */
   canvasDesignSystem?: DesignSystem
+  /** Exact hash of the current valid root DESIGN.md; omitted for missing/invalid/conflicted sources. */
+  projectDesignMdSourceHash?: string
   /**
    * Tokens extracted from the page being iterated (or the project's anchor page)
    * so an HTML/screen turn reuses the real palette/type scale instead of

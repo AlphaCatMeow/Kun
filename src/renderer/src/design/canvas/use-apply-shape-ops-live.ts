@@ -1,16 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { ChatBlock, GeneratedFileReference, ToolBlock } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
-import {
-  collectAssistantTextForTurn,
-  threadHasPendingRuntimeWork
-} from '../../store/chat-store-runtime-helpers'
-import {
-  applyCanvasOpBlocks,
-  applyCanvasOpsSince,
-  extractCanvasOpBlocksFromValue,
-  setLastCanvasOpErrors
-} from './apply-shape-ops'
+import { collectAssistantTextForTurn, threadHasPendingRuntimeWork } from '../../store/chat-store-runtime-helpers'
+import { applyCanvasOpBlocks, applyCanvasOpsSince, extractCanvasOpBlocksFromValue, setLastCanvasOpErrors } from './apply-shape-ops'
 import { useCanvasSelectionStore } from './canvas-selection-store'
 import { useCanvasShapeStore } from './canvas-shape-store'
 import { takeScreenBrief } from './screen-artifact-bridge'
@@ -23,6 +15,7 @@ import {
   shouldApplyDesignCanvasToolBlock,
   type SvgArtifactRequestHandler
 } from './svg-artifact-tool-replay'
+import { designSystemToolRevisionError, persistAppliedDesignSystemTool } from './design-system-tool-replay'
 
 export {
   hasDispatchedSvgFollowup,
@@ -458,6 +451,12 @@ export function useApplyShapeOpsLive(
         else void applySvgToolBlock(block, true)
         return
       }
+      const revisionError = designSystemToolRevisionError(block.meta?.toolName, parsed)
+      if (revisionError) {
+        appliedToolBlockIds.add(block.id)
+        errorsThisTurn.push(revisionError)
+        return
+      }
       const blocks = extractCanvasOpBlocksFromValue(parsed)
       if (blocks.length === 0) {
         return
@@ -465,6 +464,7 @@ export function useApplyShapeOpsLive(
       const { affectedIds, errors } = applyCanvasOpBlocks(blocks, `tool:${block.id}`, executeOptions)
       appliedToolBlockIds.add(block.id)
       if (errors.length > 0) errorsThisTurn.push(...errors)
+      persistAppliedDesignSystemTool(block.meta?.toolName, errors)
       if (affectedIds.length === 0) return
       for (const id of affectedIds) affectedThisTurn.add(id)
       useCanvasSelectionStore.getState().select([...affectedThisTurn])

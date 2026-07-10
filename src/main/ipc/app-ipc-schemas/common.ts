@@ -51,3 +51,7 @@ export const legacySessionImportPayloadSchema = z
     sourceDir: defaultPathSchema
   })
   .strict()
+
+export const projectDesignMdLintPayloadSchema = z
+  .object({ content: z.string().max(512 * 1024) })
+  .strict()

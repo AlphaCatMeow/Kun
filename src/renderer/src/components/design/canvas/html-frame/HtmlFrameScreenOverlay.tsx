@@ -424,6 +424,7 @@ function ScreenOverlayInner({
               webviewMounted: Boolean(preview.webviewUrl),
               hasArtifact: Boolean(artifact),
               transparentGeneratingSurface,
+              drawingActive,
               previewError,
               failedMessage
             }) ? (
@@ -446,14 +447,14 @@ function ScreenOverlayInner({
           )}
           {preview.webviewUrl && drawingActive && !aiCursor ? (
             <div className="pointer-events-none absolute inset-0">
-              <div className="absolute right-3 top-3 flex max-w-[70%] items-center gap-1.5 rounded-full border border-accent/30 bg-white/88 px-2.5 py-1.5 text-[11px] font-semibold text-accent shadow-[0_10px_30px_rgba(20,47,95,0.14)] backdrop-blur-md">
+              <div className="absolute right-3 top-3 flex max-w-[70%] items-center gap-1.5 rounded-full border border-accent/30 bg-white/88 px-2.5 py-1.5 text-[11px] font-semibold text-accent shadow-[0_10px_30px_rgba(20,47,95,0.14)] backdrop-blur-md dark:border-accent/45 dark:bg-[#20252e] dark:text-[#aeb8ff]">
                 <Brush className="h-3.5 w-3.5 animate-pulse" strokeWidth={1.8} aria-hidden="true" />
                 <span className="min-w-0 truncate">{drawingLabel}</span>
               </div>
             </div>
           ) : null}
           {preview.webviewUrl && failedMessage ? (
-            <div className="pointer-events-none absolute inset-x-3 top-3 rounded-md border border-red-300/70 bg-white/92 px-2.5 py-1.5 text-[11px] font-semibold text-red-600 shadow-sm">
+            <div className="pointer-events-none absolute inset-x-3 top-3 rounded-md border border-red-300/70 bg-white/92 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 shadow-sm dark:border-red-400/35 dark:bg-red-950/85 dark:text-red-200">
               {failedMessage}
             </div>
           ) : null}

@@ -11,8 +11,8 @@ import type {
 } from './canvas/design-system-types'
 import { resolvePrototypeViewportFrame } from './prototype-player'
 
-/** Project-level Stitch/code-agent compatible design brief export. */
-export const STITCH_DESIGN_MD_PATH = '.kun-design/DESIGN.md'
+/** Project-level Kun handoff. Root DESIGN.md is the canonical theme source. */
+export const STITCH_DESIGN_MD_PATH = '.kun-design/HANDOFF.md'
 
 export type BuildStitchDesignMarkdownOptions = {
   title?: string
@@ -153,6 +153,7 @@ export function buildStitchDesignMarkdown(options: BuildStitchDesignMarkdownOpti
   const contextLines = formatDesignContextLines(options.designContext).filter((line) => line.trim())
   const preset = options.designContext?.designSystemPreset
   const presetLine = preset && preset !== 'none' ? `- Preset: ${DESIGN_SYSTEM_DISPLAY[preset]}` : '- Preset: none'
+  const referencesCanonicalTheme = options.designSystemMdPath === 'DESIGN.md'
 
   return [
     `# DESIGN.md: ${title}`,
@@ -177,11 +178,15 @@ export function buildStitchDesignMarkdown(options: BuildStitchDesignMarkdownOpti
     '',
     '## Tokens',
     '',
-    ...formatTokens(options.designSystem),
+    ...(referencesCanonicalTheme
+      ? ['See root `DESIGN.md`. Token values are intentionally not duplicated in this generated handoff.']
+      : formatTokens(options.designSystem)),
     '',
     '## Components',
     '',
-    ...formatComponents(options.designSystem),
+    ...(referencesCanonicalTheme
+      ? ['See root `DESIGN.md` for public component guidance; Kun-native rich component trees remain in internal document sidecars.']
+      : formatComponents(options.designSystem)),
     '',
     '## Screens and Prototype Flow',
     '',
@@ -189,7 +194,7 @@ export function buildStitchDesignMarkdown(options: BuildStitchDesignMarkdownOpti
     '',
     '## Implementation Guidance',
     '',
-    '- Keep UI work aligned with the tokens, components, and screen flow above.',
+    '- Read root `DESIGN.md` first and keep UI work aligned with its tokens and component guidance plus the screen flow below.',
     '- Treat each HTML or SVG artifact DESIGN.md as the detailed handoff for states, responsive behavior, animation, and implementation notes.',
     '- Preserve planned prototype hrefs when converting HTML screens into production routes.',
     '- Keep SVG motion declarative and preserve its viewBox, accessibility metadata, and reduced-motion behavior.',

@@ -155,6 +155,8 @@ const api = {
     ipcRenderer.invoke('file:resolve-workspace', options),
   readWorkspaceFile: (options) =>
     ipcRenderer.invoke('file:read-workspace', options),
+  lintProjectDesignMd: (content) =>
+    ipcRenderer.invoke('design:lint-project-design-md', { content }),
   readWorkspaceImage: (options) =>
     ipcRenderer.invoke('file:read-workspace-image', options),
   readWorkspacePdf: (options) =>

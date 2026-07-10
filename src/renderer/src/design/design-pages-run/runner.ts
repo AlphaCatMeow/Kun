@@ -36,7 +36,8 @@ import { createDesignArtifactId, defaultDesignArtifactNode, type DesignDirection
 import type { ParallelDesignPageState } from "../design-workspace-store-types"
 import { useDesignWorkspaceStore } from "../design-workspace-store"
 import { useDesignSystemStore } from "../canvas/design-system-store"
-import { PROJECT_DESIGN_SYSTEM_PATH } from '../canvas/project-design-system'
+import { PROJECT_DESIGN_MD_PATH } from '../design-md/design-md-paths'
+import { parseProjectDesignMdWithOfficialLint } from '../design-md/design-md-adapter'
 import type { RunDesignPagesDeps } from './orchestration-support'
 import { PAGE_TIMEOUT_MS, PARALLEL_PAGES_TIMEOUT_MS, PLAN_TIMEOUT_MS, assistantTextForLastTurn, beginDesignPagesRun, buildDirectionName, createFoundationCard, delay, finishDesignPagesRun, formatPageFlowLines, formatPageProductBriefLines, runTurn, syncParallelPageStates, waitForTurnComplete, writeWorkspaceTextFile } from './orchestration-support'
 
@@ -148,10 +149,12 @@ export async function runDesignPages(deps: RunDesignPagesDeps): Promise<void> {
     if (withFoundation) {
       if (signal.cancelled) return
       const structuredSystem = await window.kunGui?.readWorkspaceFile?.({
-        path: PROJECT_DESIGN_SYSTEM_PATH,
+        path: PROJECT_DESIGN_MD_PATH,
         workspaceRoot: deps.workspaceRoot
       }).catch(() => null)
-      if (structuredSystem?.ok) designSystemRef = PROJECT_DESIGN_SYSTEM_PATH
+      if (structuredSystem?.ok && (await parseProjectDesignMdWithOfficialLint(structuredSystem.content, { truncated: structuredSystem.truncated })).ok) {
+        designSystemRef = PROJECT_DESIGN_MD_PATH
+      }
 
       if (signal.cancelled) return
       const existingLogo = findFoundationArtifact(useDesignWorkspaceStore.getState().artifacts, 'logo')
@@ -381,7 +384,7 @@ export async function runDesignPages(deps: RunDesignPagesDeps): Promise<void> {
           brief: deps.brief,
           ...(deps.designContext ? { designContext: deps.designContext } : {}),
           designSystem: useDesignSystemStore.getState().system,
-          designSystemMdPath: designSystemRef ?? PROJECT_DESIGN_SYSTEM_PATH,
+          designSystemMdPath: designSystemRef ?? PROJECT_DESIGN_MD_PATH,
           ...(designMdRef ? { projectBriefPath: designMdRef } : {}),
           artifacts: state.artifacts
         })

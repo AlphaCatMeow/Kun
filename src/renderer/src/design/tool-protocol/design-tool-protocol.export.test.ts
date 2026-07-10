@@ -125,7 +125,7 @@ describe('design.export package output', () => {
       '**Orbit loader** (artifact_motion): SVG `.kun-design/doc/artifact_motion/v1.svg`'
     )
     expect(output.resources).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'project-design-md', path: '.kun-design/DESIGN.md' }),
+      expect.objectContaining({ kind: 'project-design-md', path: '.kun-design/HANDOFF.md' }),
       expect.objectContaining({ kind: 'html', path: '.kun-design/doc/artifact_home/v1.html', artifactId: 'artifact_home', frameId: homeFrame.id }),
       expect.objectContaining({ kind: 'svg', path: '.kun-design/doc/artifact_motion/v1.svg', artifactId: 'artifact_motion', frameId: motionFrame.id }),
       expect.objectContaining({ kind: 'screen-design-md', path: '.kun-design/doc/artifact_home/DESIGN.md', artifactId: 'artifact_home' }),

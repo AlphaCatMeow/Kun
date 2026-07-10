@@ -256,18 +256,18 @@ function SvgArtifactFrame({
             }}
           />
         ) : (
-          <div className="absolute inset-0 grid place-items-center bg-slate-50 px-6 text-center text-xs text-slate-500">
+          <div className="absolute inset-0 grid place-items-center bg-slate-50 px-6 text-center text-xs text-slate-600 dark:bg-[#171b22] dark:text-white/65">
             {label}
           </div>
         )}
       </div>
       {showControls ? (
-        <div className="pointer-events-auto absolute left-0 top-full mt-2 flex h-8 w-max max-w-[calc(100vw-32px)] items-center gap-1.5 rounded-lg border border-black/10 bg-white/95 px-2 text-slate-600 shadow backdrop-blur">
+        <div className="pointer-events-auto absolute left-0 top-full mt-2 flex h-8 w-max max-w-[calc(100vw-32px)] items-center gap-1.5 rounded-lg border border-black/10 bg-white/95 px-2 text-slate-700 shadow backdrop-blur dark:border-white/15 dark:bg-[#20252e] dark:text-white/75">
           {hasAnimations ? (
             <>
               <button
                 type="button"
-                className="grid h-6 w-6 place-items-center rounded hover:bg-slate-100"
+                className="grid h-6 w-6 place-items-center rounded hover:bg-slate-100 dark:hover:bg-white/10 dark:hover:text-white"
                 title={playing ? 'Pause SVG animation' : 'Play SVG animation'}
                 onClick={() => {
                   if (!playing && currentMsRef.current >= durationMs) seek(0)
@@ -278,7 +278,7 @@ function SvgArtifactFrame({
               </button>
               <button
                 type="button"
-                className="grid h-6 w-6 place-items-center rounded hover:bg-slate-100"
+                className="grid h-6 w-6 place-items-center rounded hover:bg-slate-100 dark:hover:bg-white/10 dark:hover:text-white"
                 title="Restart SVG animation"
                 onClick={() => {
                   seek(0)
@@ -302,7 +302,7 @@ function SvgArtifactFrame({
               />
               <button
                 type="button"
-                className="h-6 min-w-9 rounded px-1 text-[10px] font-semibold hover:bg-slate-100"
+                className="h-6 min-w-9 rounded px-1 text-[10px] font-semibold hover:bg-slate-100 dark:hover:bg-white/10 dark:hover:text-white"
                 title="Change playback speed"
                 onClick={() => setRate((value) => value === 0.5 ? 1 : value === 1 ? 2 : 0.5)}
               >
@@ -326,14 +326,14 @@ function SvgArtifactFrame({
           />
           <button
             type="button"
-            className={`grid h-6 w-6 shrink-0 place-items-center rounded ${interactive ? 'bg-violet-100 text-violet-700' : 'hover:bg-slate-100'}`}
+            className={`grid h-6 w-6 shrink-0 place-items-center rounded ${interactive ? 'bg-violet-100 text-violet-700 dark:bg-violet-400/20 dark:text-violet-200' : 'hover:bg-slate-100 dark:hover:bg-white/10 dark:hover:text-white'}`}
             title="Toggle SVG pointer interaction"
             onClick={() => setInteractive((value) => !value)}
           >
             <MousePointer2 className="h-3.5 w-3.5" />
           </button>
           {diagnostics > 0 ? (
-            <span className="max-w-20 truncate text-[9px] font-semibold text-amber-600" title={preview.diagnostics.map((item) => item.message).join('\n')}>
+            <span className="max-w-20 truncate text-[9px] font-semibold text-amber-700 dark:text-amber-300" title={preview.diagnostics.map((item) => item.message).join('\n')}>
               {diagnostics} warning{diagnostics === 1 ? '' : 's'}
             </span>
           ) : null}

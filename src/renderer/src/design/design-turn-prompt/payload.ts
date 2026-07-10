@@ -46,6 +46,7 @@ export type BuildDesignTurnPromptPayloadOptions = {
   visibleTargets: readonly DesignComposerContextTarget[]
   canvasDocument: CanvasDocument
   designSystem: DesignSystem
+  projectDesignMdSourceHash?: string
   tokensByArtifact: Record<string, DerivedTokens>
   designNotesPath?: string
   basePath?: string
@@ -179,6 +180,7 @@ export async function buildDesignTurnPromptPayload(
     ...(contextLocations.length > 0 ? { contextLocations } : {}),
     ...(options.canvasSnapshot ? { canvasSnapshot: options.canvasSnapshot } : {}),
     canvasDesignSystem: options.designSystem,
+    ...(options.projectDesignMdSourceHash ? { projectDesignMdSourceHash: options.projectDesignMdSourceHash } : {}),
     ...(options.htmlFrameContext ? { frameContext: options.htmlFrameContext } : {}),
     ...(options.previousOpErrors?.length ? { previousOpErrors: options.previousOpErrors } : {}),
     ...(derivedTokens ? { derivedTokens } : {}),

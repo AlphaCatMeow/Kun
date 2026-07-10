@@ -6,8 +6,10 @@ import type {
   DesignSystem,
   DesignToken
 } from './design-system-types'
+import { LEGACY_PROJECT_DESIGN_SYSTEM_PATH } from '../design-md/design-md-paths'
 
-export const PROJECT_DESIGN_SYSTEM_PATH = '.kun-design/design-system.json'
+/** @deprecated Legacy migration sidecar. Root DESIGN.md is the only public project theme. */
+export const PROJECT_DESIGN_SYSTEM_PATH = LEGACY_PROJECT_DESIGN_SYSTEM_PATH
 export const PROJECT_DESIGN_SYSTEM_SCHEMA_VERSION = 1 as const
 
 export type ProjectDesignSystemV1 = {

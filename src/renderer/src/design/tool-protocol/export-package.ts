@@ -6,7 +6,7 @@ import type { DesignToolState } from './tool-state'
 
 export type DesignExportResourceKind =
   | 'project-design-md'
-  | 'design-system-json'
+  | 'project-theme-design-md'
   | 'canvas'
   | 'html'
   | 'svg'
@@ -103,7 +103,7 @@ export function buildDesignExportPackage(
   })
   const resources: DesignExportResource[] = [
     { kind: 'project-design-md', path: STITCH_DESIGN_MD_PATH, title: options.title },
-    { kind: 'design-system-json', path: options.designSystemPath, title: 'Design system' },
+    { kind: 'project-theme-design-md', path: options.designSystemPath, title: 'Project theme DESIGN.md' },
     { kind: 'graph-json', path: '.kun-design/design-graph.json', title: 'Design Graph' },
     ...artifactResources(state)
   ]

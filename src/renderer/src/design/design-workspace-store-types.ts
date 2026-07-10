@@ -63,7 +63,7 @@ export type DesignWorkspaceState = {
   publishDesignSystem: boolean
   settingsLoaded: boolean
   fileError: string | null
-  /** Hash of the current valid .kun-design/design-system.json ('' = none). */
+  /** Hash of the current valid root DESIGN.md ('' = none). */
   designSystemHash: string
   /** When true, the design page shows the in-page code-implement assistant. */
   implementOpen: boolean

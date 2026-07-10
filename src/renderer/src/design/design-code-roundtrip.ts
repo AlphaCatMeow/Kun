@@ -3,7 +3,8 @@ import type { SendMessageOverrides } from '../store/chat-store-types'
 import { canImplementDesignArtifact } from './design-artifact-actions'
 import type { DesignArtifact } from './design-types'
 import { hashDesignSystem } from './design-context'
-import { PROJECT_DESIGN_SYSTEM_PATH, parseProjectDesignSystem } from './canvas/project-design-system'
+import { parseProjectDesignMdWithOfficialLint } from './design-md/design-md-adapter'
+import { PROJECT_DESIGN_MD_PATH } from './design-md/design-md-paths'
 import type { DesignWorkspaceState } from './design-workspace-store-types'
 import { buildImplementDesignPrompt } from './design-implement-prompt'
 import { createDesignArtifactId } from './design-types'
@@ -126,11 +127,11 @@ async function publishDesignSystemForImplementation(options: {
   if (typeof api?.readWorkspaceFile !== 'function') return {}
   try {
     const result = await api.readWorkspaceFile({
-      path: PROJECT_DESIGN_SYSTEM_PATH,
+      path: PROJECT_DESIGN_MD_PATH,
       workspaceRoot: options.workspaceRoot
     })
-    if (!result.ok || !parseProjectDesignSystem(result.content).ok) return {}
-    return { relativePath: PROJECT_DESIGN_SYSTEM_PATH, hash: hashDesignSystem(result.content) }
+    if (!result.ok || !(await parseProjectDesignMdWithOfficialLint(result.content, { truncated: result.truncated })).ok) return {}
+    return { relativePath: PROJECT_DESIGN_MD_PATH, hash: hashDesignSystem(result.content) }
   } catch {
     return {}
   }

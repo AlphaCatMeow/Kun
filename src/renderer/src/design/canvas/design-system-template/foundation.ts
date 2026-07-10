@@ -13,6 +13,7 @@ import { resolveTokenPatch, type ComponentDef, type DesignToken, type TokenProp 
 import type { OpError } from "../shape-ops"
 import { normalizeDesignTarget, type DesignTarget } from "../../design-context"
 import { useDesignWorkspaceStore } from "../../design-workspace-store"
+import { useProjectDesignSystemStore } from '../project-design-system-store'
 import { cleanName, fontStack } from './board-builders'
 import { mix, normalizeHex, rotateHue } from './color-utils'
 
@@ -27,6 +28,7 @@ export type DesignSystemTemplateTone = 'clean' | 'playful' | 'premium' | 'techni
 export type DesignSystemTemplateOp = {
   op: 'design-system-template'
   operation: DesignSystemTemplateOperation
+  expectedHash?: string
   name?: string
   seedColor?: string
   mode?: DesignSystemTemplateMode
@@ -90,6 +92,10 @@ export function applyDesignSystemTemplateOp(
   errors: OpError[]
 ): void {
   if (op.dryRun) return
+  if (op.expectedHash && op.expectedHash !== useProjectDesignSystemStore.getState().sourceHash) {
+    errors.push({ code: 'INVALID_OP', message: 'DESIGN.md changed since the agent read it. Reload and retry with the current source hash.' })
+    return
+  }
   const normalizedOp = normalizeTemplateOp(op)
 
   if (normalizedOp.mode === 'both') {

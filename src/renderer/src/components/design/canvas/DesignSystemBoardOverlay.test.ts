@@ -10,5 +10,8 @@ describe('DesignSystemBoardOverlay', () => {
   it('renders persisted and invalid design-system files', () => {
     expect(shouldRenderDesignSystemBoard('ready')).toBe(true)
     expect(shouldRenderDesignSystemBoard('invalid')).toBe(true)
+    expect(shouldRenderDesignSystemBoard('dirty')).toBe(true)
+    expect(shouldRenderDesignSystemBoard('saving')).toBe(true)
+    expect(shouldRenderDesignSystemBoard('conflict')).toBe(true)
   })
 })

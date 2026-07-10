@@ -1,5 +1,5 @@
 import { buildStitchDesignMarkdown, STITCH_DESIGN_MD_PATH } from '../design-md-compat'
-import { PROJECT_DESIGN_SYSTEM_PATH } from '../canvas/project-design-system'
+import { PROJECT_DESIGN_MD_PATH } from '../design-md/design-md-paths'
 import { buildDesignExportPackage } from './export-package'
 import {
   invalidToolResult,
@@ -34,7 +34,7 @@ export function executeDesignExportInvocation(invocation: DesignToolInvocation):
   const state = readDesignToolState()
   const title = maybeString(record?.title) ?? state.document?.title ?? 'Kun design project'
   const updatedAt = new Date().toISOString()
-  const designSystemPath = PROJECT_DESIGN_SYSTEM_PATH
+  const designSystemPath = PROJECT_DESIGN_MD_PATH
   const projectBriefPath = maybeString(record?.projectBriefPath)
   const markdown = buildStitchDesignMarkdown({
     title,

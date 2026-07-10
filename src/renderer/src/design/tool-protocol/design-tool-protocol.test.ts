@@ -580,7 +580,7 @@ describe('design tool protocol', () => {
     const output = result.output as { path: string; markdown: string }
 
     expect(result).toMatchObject({ ok: true, status: 'ready', affectedIds: [] })
-    expect(output.path).toBe('.kun-design/DESIGN.md')
+    expect(output.path).toBe('.kun-design/HANDOFF.md')
     expect(output.markdown).toContain('# DESIGN.md: Checkout redesign')
     expect(output.markdown).toContain('Improve checkout conversion.')
   })

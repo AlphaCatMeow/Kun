@@ -37,4 +37,34 @@ describe('design turn prompt design mode context', () => {
     expect(prompt).not.toContain('BUILD A COMPLETE MULTI-SCREEN EXPERIENCE')
     expect(prompt).toContain('Code sidebar whiteboard')
   })
+
+  it('advertises root DESIGN.md only with an exact valid source hash', () => {
+    const base = {
+      target: 'canvas' as const,
+      mode: 'text' as const,
+      text: 'Design a settings screen',
+      artifactRelativePath: '.kun-design/doc/board.canvas.json',
+      workspaceRoot: '/workspace',
+      canvasDesignSystem: {
+        tokens: {
+          'color.primary': { name: 'color.primary', kind: 'color' as const, value: '#6750a4' }
+        },
+        components: {}
+      }
+    }
+
+    const withSource = buildDesignTurnPrompt({
+      ...base,
+      projectDesignMdSourceHash: 'sha256:exact-source'
+    })
+    expect(withSource).toContain('Project design system: DESIGN.md')
+    expect(withSource).toContain('sha256:exact-source')
+    expect(withSource).toContain('expectedHash')
+    expect(withSource).toContain('Do not replace it with an HTML/SVG style guide')
+
+    const withoutSource = buildDesignTurnPrompt(base)
+    expect(withoutSource).not.toContain('Project design system: DESIGN.md')
+    expect(withoutSource).not.toContain('Current exact source hash:')
+    expect(withoutSource).not.toContain('sha256:exact-source')
+  })
 })

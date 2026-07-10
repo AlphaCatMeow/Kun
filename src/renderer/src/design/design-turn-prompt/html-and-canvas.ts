@@ -13,7 +13,7 @@ import { snapshotToCompactJson } from "../canvas/canvas-snapshot"
 import type { OpError } from "../canvas/shape-ops"
 import { useDesignSystemStore } from "../canvas/design-system-store"
 import type { DesignSystem, DesignToken } from "../canvas/design-system-types"
-import { PROJECT_DESIGN_SYSTEM_PATH } from '../canvas/project-design-system'
+import { PROJECT_DESIGN_MD_PATH } from '../design-md/design-md-paths'
 import { takeLastLintFindings } from "../canvas/design-lint"
 import type { DerivedTokens } from "../design-token-extract"
 import type { DesignContextLocation, DesignHtmlElementContext } from "../design-composer-context"
@@ -121,16 +121,18 @@ export function buildScreenTurnPrompt(options: ScreenTurnOptions): string {
 
 export function formatProjectDesignSystemLines(options: DesignTurnOptions): string[] {
   if (options.canvasSurface === 'code') return []
+  if (!options.projectDesignMdSourceHash) return []
   const system = options.canvasDesignSystem
   if (!system) return []
   const tokenNames = Object.keys(system.tokens)
   const componentNames = Object.keys(system.components)
   if (tokenNames.length === 0 && componentNames.length === 0) return []
   return [
-    `Structured project design system: ${PROJECT_DESIGN_SYSTEM_PATH} (read this file before designing; it is the single source of truth).`,
+    `Project design system: ${PROJECT_DESIGN_MD_PATH} (read this Google-compatible file before designing; it is the single source of truth).`,
+    `- Current exact source hash: ${options.projectDesignMdSourceHash}. Pass it as \`expectedHash\` to \`design_system\` updates.`,
     `- Available tokens (${tokenNames.length}): ${tokenNames.slice(0, 20).join(', ') || 'none'}.`,
     `- Available components (${componentNames.length}): ${componentNames.slice(0, 12).join(', ') || 'none'}.`,
-    '- Reuse its exact token values, component trees, slots, and variants. Do not replace it with an HTML/SVG style guide.',
+    '- Reuse its exact token values and semantic component guidance. Patch YAML structurally and preserve Markdown prose. Do not replace it with an HTML/SVG style guide.',
     ''
   ]
 }
@@ -369,7 +371,7 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
         ]),
     codeCanvasMode
       ? '- CREATE OR UPDATE A DESIGN SYSTEM — use `design_system` only when the user explicitly asks for reusable whiteboard tokens/components. It updates structured state and never draws a separate style-kit board.'
-      : '- CREATE OR UPDATE A DESIGN SYSTEM — the user asks for a unified template, theme, style guide, design system, tokens, palette, typography, or "make pages consistent". → call `design_system`; it updates `.kun-design/design-system.json`, which the built-in fixed board renders automatically. Then use `design_validate`. Never draw a separate HTML/SVG/style-kit board.',
+      : '- CREATE OR UPDATE A DESIGN SYSTEM — the user asks for a unified template, theme, style guide, design system, tokens, palette, typography, or "make pages consistent". → call `design_system`; it updates root `DESIGN.md`, which the built-in fixed specimen board renders automatically. Then use `design_validate`. Never draw a separate HTML/SVG/style-kit board.',
     '- EDIT THE CANVAS — add, move, restyle, group, annotate, or replace images. → use `design_update_shapes` with the structural ops below.',
     '- ARRANGE THE WHITEBOARD — align, distribute, stack, grid, or responsive reflow existing objects. → use `design_arrange` instead of hand-writing many move ops.',
     codeCanvasMode
@@ -384,7 +386,7 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
     '- `design_arrange`: { "operation": "align"|"distribute"|"stack"|"grid"|"responsive_reflow", ... }. Use for layout mechanics and whiteboard cleanup.',
     codeCanvasMode
       ? '- `design_system`: { "operation": "create"|"update"|"apply"|"validate", ... }. Updates thread-scoped structured tokens/components without drawing a board.'
-      : '- `design_system`: { "operation": "create"|"update"|"apply"|"validate", "name"?, "seedColor"?, "mode"?: "light"|"dark"|"both", "template"?: "app"|"saas"|"game"|"editor"|"mobile"|"portfolio", "tone"?: "clean"|"playful"|"premium"|"technical"|"editorial", "targetIds"? }. Updates the structured project design-system file; its fixed board appears automatically.',
+      : '- `design_system`: { "operation": "create"|"update"|"apply"|"validate", "expectedHash"?, "name"?, "seedColor"?, "mode"?: "light"|"dark"|"both", "template"?: "app"|"saas"|"game"|"editor"|"mobile"|"portfolio", "tone"?: "clean"|"playful"|"premium"|"technical"|"editorial", "targetIds"? }. Updates root DESIGN.md; pass the exact source hash when known. Its fixed board appears automatically.',
     '- `design_validate`: { "targetIds"? }. Runs design-system lint so the next turn sees off-token colors, contrast issues, and tap-target problems; pass targetIds only when the user selected a specific screen/component to validate.',
     ...(codeCanvasMode ? [] : [
       '- `design_svg_create`: { "name": "Animated Logo", "brief": "...", "x"?, "y"?, "width"?, "height"? }. Creates one first-class .svg artifact and hands it to the dedicated SVG tools in the next automatic turn.'

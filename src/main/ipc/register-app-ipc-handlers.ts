@@ -52,6 +52,7 @@ import {
   notificationPayloadSchema,
   openEditorPathPayloadSchema,
   providerProbePayloadSchema,
+  projectDesignMdLintPayloadSchema,
   promptOptimizationPayloadSchema,
   rootPathSchema,
   worktreeCommitSchema,
@@ -108,6 +109,7 @@ import {
   resolveModelProviderProxyUrl
 } from '../../shared/app-settings'
 import { detectLegacySessions, importLegacySessions } from '../services/legacy-session-import-service'
+import { lintProjectDesignMd } from '../services/project-design-md-lint'
 import { claudeSubscriptionStatus, runClaudeSetupToken } from '../claude-subscription-auth'
 import { fetchSdkModels } from '../claude-subscription-models'
 import {
@@ -1506,6 +1508,10 @@ export function registerAppIpcHandlers(options: RegisterAppIpcHandlersOptions): 
       { parentWindow: getMainWindow() }
     )
   )
+  ipcMain.handle('design:lint-project-design-md', async (_, payload: unknown) => {
+    const request = parseIpcPayload('design:lint-project-design-md', projectDesignMdLintPayloadSchema, payload)
+    return lintProjectDesignMd(request.content)
+  })
   ipcMain.handle('write:copy-rich-text', async (_, payload: unknown) =>
     copyWriteDocumentAsRichText(
       parseIpcPayload('write:copy-rich-text', writeRichClipboardPayloadSchema, payload)

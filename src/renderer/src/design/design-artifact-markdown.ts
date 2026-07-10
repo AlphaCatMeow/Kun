@@ -59,11 +59,11 @@ export function buildDesignArtifactMarkdown(options: BuildDesignArtifactMarkdown
     ? [
         '- Define the vector composition, layer hierarchy, palette, stroke/fill treatment, and static first frame.',
         '- Preserve a responsive viewBox and keep editable visual layers on stable descriptive ids.',
-        '- Keep visual decisions consistent with `.kun-design/design-system.json` when that structured project file exists.'
+        '- Keep visual decisions consistent with root `DESIGN.md` when that valid project theme exists.'
       ]
     : [
         '- Establish the page layout, hierarchy, color system, typography, spacing, and responsive behavior for this screen.',
-        '- Keep visual decisions consistent with `.kun-design/design-system.json` when that structured project file exists.'
+        '- Keep visual decisions consistent with root `DESIGN.md` when that valid project theme exists.'
       ]
   const interactionNotes = isSvg
     ? '- Document animation timing, easing, loop behavior, paused/reduced-motion behavior, and accessibility metadata here as the design evolves.'

@@ -13,10 +13,8 @@ import {
   persistDocumentsIndex
 } from './design-document-persistence'
 import { defaultPreviewNodeSizeForDesignTarget, hashDesignSystem, normalizeDesignTarget } from './design-context'
-import {
-  PROJECT_DESIGN_SYSTEM_PATH,
-  parseProjectDesignSystem
-} from './canvas/project-design-system'
+import { parseProjectDesignMdWithOfficialLint } from './design-md/design-md-adapter'
+import { PROJECT_DESIGN_MD_PATH } from './design-md/design-md-paths'
 import {
   createDesignDocumentId,
   defaultDesignArtifactNode,
@@ -609,14 +607,12 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
         return
       }
       const res = await window.kunGui
-        .readWorkspaceFile({ path: PROJECT_DESIGN_SYSTEM_PATH, workspaceRoot })
+        .readWorkspaceFile({ path: PROJECT_DESIGN_MD_PATH, workspaceRoot })
         .catch(() => null)
-      set({
-        designSystemHash:
-          res && res.ok && parseProjectDesignSystem(res.content).ok
-            ? hashDesignSystem(res.content)
-            : ''
-      })
+      const parsed = res?.ok
+        ? await parseProjectDesignMdWithOfficialLint(res.content, { truncated: res.truncated })
+        : null
+      set({ designSystemHash: parsed?.ok && res?.ok ? hashDesignSystem(res.content) : '' })
     },
 
     resetWorkspace: () =>
