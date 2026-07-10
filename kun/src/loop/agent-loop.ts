@@ -5,7 +5,6 @@ import type { ModelClient, ModelRequest, ModelToolSpec } from '../ports/model-cl
 import type { AgentSdkRuntime } from '../runtime/agent-sdk/agent-sdk-runtime.js'
 import type {
   ToolHost,
-  ToolCallLike,
   ToolHostContext,
   GuiPlanContext,
   GuiDesignArtifactContext
@@ -56,7 +55,6 @@ import {
   makeUserItem,
   makeAssistantTextItem,
   makeAssistantReasoningItem,
-  makeToolCallItem,
   makeErrorItem
 } from '../domain/item.js'
 import { touchThread } from '../domain/thread.js'
@@ -97,9 +95,9 @@ import { TurnFinalizer, type TurnFinalizationRequest } from './turn-finalizer.js
 import { canUpgradeThreadTitle } from './thread-title-policy.js'
 import { normalizeTurnLimits, type TurnLimitsConfig } from './turn-limits.js'
 import {
-  svgArtifactCompletionState,
-  type SvgArtifactCompletionState
+  svgArtifactCompletionState
 } from './svg-artifact-completion.js'
+import { RoundOutcomeCoordinator } from './round-outcome-coordinator.js'
 import {
   TurnAttachmentService,
   attachmentRequestPipelineDetails,
@@ -126,7 +124,6 @@ import {
 } from './goal-resume-coordinator.js'
 import {
   PLAN_MODE_INSTRUCTION,
-  isPlanClarifyingQuestion,
   resolvePlanModeToolSpecs,
   turnHasUnverifiedSourceChanges,
   verificationSuggestionInstruction
@@ -141,12 +138,8 @@ import {
   shouldInjectInitialRuntimeContext
 } from './runtime-context.js'
 import {
-  EMPTY_POST_TOOL_MAX_RECOVERY_STEPS,
-  GOAL_NO_TOOL_REPEAT_MAX_RECOVERY_STEPS,
   emptyPostToolRecoveryInstruction,
   hasSuccessfulCreatePlanResult,
-  isRepeatedNoToolAssistantText,
-  latestUserMessageText,
   userInputUnavailableInstruction
 } from './continuation-instructions.js'
 export {
@@ -175,8 +168,6 @@ export {
 // request. Older ones collapse to a text note (Anthropic-style "keep last
 // N images"), bounding context growth for long computer-use sessions.
 const MAX_FORWARDED_TOOL_IMAGES = 3
-const MAX_SVG_COMPLETION_RECOVERY_STEPS = 3
-
 /**
  * Tools that, on their own, do not count as "progress" toward a goal when
  * deciding whether to keep auto-resuming after a failed goal turn. A turn
@@ -349,15 +340,12 @@ export class AgentLoop {
   private readonly threadItems: ThreadItemProjectionService
   private readonly historyCompaction: HistoryCompactionService
   private readonly modelRoundEngine: ModelRoundEngine
+  private readonly roundOutcome: RoundOutcomeCoordinator
   private readonly turnAttachments: TurnAttachmentService
   private readonly turnContextResolver: TurnContextResolver
   private readonly interactiveToolBridge: InteractiveToolBridge
   private readonly toolExecution: ToolExecutionService
   private readonly toolCallDispatcher: ToolCallDispatcher
-  private readonly lastNoToolTextByTurn = new Map<string, string>()
-  private readonly goalNoToolRecoveryStepsByTurn = new Map<string, number>()
-  private readonly emptyPostToolRecoveryStepsByTurn = new Map<string, number>()
-  private readonly svgCompletionRecoveryStepsByTurn = new Map<string, number>()
   private readonly turnFailures = new Map<string, TurnExecutionFailure>()
   /** One owned runner per turn; duplicate callers share its terminal result. */
   private readonly activeTurnRuns = new Map<string, Promise<TurnExecutionStatus>>()
@@ -427,6 +415,16 @@ export class AgentLoop {
       ...(opts.onPlanWritten ? { onPlanWritten: opts.onPlanWritten } : {})
     })
     this.toolCallDispatcher = new ToolCallDispatcher(this.toolExecution)
+    this.roundOutcome = new RoundOutcomeCoordinator({
+      sessionStore: opts.sessionStore,
+      turns: opts.turns,
+      events: opts.events,
+      ids: opts.ids,
+      dispatchToolCalls: (input) => this.dispatchToolCalls(input),
+      rememberFailure: (turnId, failure) => this.rememberTurnFailure(turnId, failure),
+      hasTurnMadeProgress: (turnId) => this.turnMadeProgress.has(turnId),
+      suppressGoalResume: (turnId) => this.goalResumeSuppressedByTurn.add(turnId)
+    })
     this.turnContextResolver = new TurnContextResolver({
       toolHost: opts.toolHost,
       resolveAttachments: (input) => this.turnAttachments.resolveTurnAttachments(input),
@@ -670,12 +668,9 @@ export class AgentLoop {
       } finally {
         this.modelRouting.clear(threadId, turnId)
         this.toolStormBreakers.delete(turnId)
-        this.lastNoToolTextByTurn.delete(turnId)
-        this.goalNoToolRecoveryStepsByTurn.delete(turnId)
+        this.roundOutcome.clearTurn(turnId)
         this.turnMadeProgress.delete(turnId)
         this.goalResumeSuppressedByTurn.delete(turnId)
-        this.emptyPostToolRecoveryStepsByTurn.delete(turnId)
-        this.svgCompletionRecoveryStepsByTurn.delete(turnId)
         this.turnFailures.delete(turnId)
         this.telemetry.clearPromptPressure(threadId)
         await runTurnEndLifecycleHooks(this.lifecycleHookDeps(), {
@@ -697,48 +692,6 @@ export class AgentLoop {
       ids: this.opts.ids,
       nowIso: this.opts.nowIso
     }
-  }
-
-  private async recoverRequiredSvgCompletion(
-    threadId: string,
-    turnId: string,
-    state: SvgArtifactCompletionState
-  ): Promise<'continue' | 'failed'> {
-    const attempt = (this.svgCompletionRecoveryStepsByTurn.get(turnId) ?? 0) + 1
-    this.svgCompletionRecoveryStepsByTurn.set(turnId, attempt)
-    const exhausted = attempt >= MAX_SVG_COMPLETION_RECOVERY_STEPS
-    const missingCode = state.mutationSucceeded
-      ? 'required_svg_validation_missing'
-      : 'required_svg_mutation_missing'
-    const message = state.mutationSucceeded
-      ? `The dedicated SVG artifact turn cannot finish until \`${DESIGN_SVG_VALIDATE_TOOL_NAME}\` succeeds after the last mutation.`
-      : [
-          'The dedicated SVG artifact turn cannot finish before a structured mutation succeeds.',
-          `Call \`${DESIGN_SVG_EDIT_TOOL_NAME}\` or \`${DESIGN_SVG_ANIMATE_TOOL_NAME}\`, then finish with \`${DESIGN_SVG_VALIDATE_TOOL_NAME}\`.`
-        ].join(' ')
-    const finalMessage = exhausted
-      ? `${message} Recovery attempts exhausted.`
-      : message
-    const code = exhausted ? 'svg_completion_gate_exhausted' : missingCode
-    const severity = exhausted ? 'error' as const : 'warning' as const
-    if (exhausted) {
-      this.rememberTurnFailure(turnId, { error: finalMessage, code, severity })
-    }
-    await this.opts.events.record({
-      kind: 'error', threadId, turnId, message: finalMessage, code, severity
-    })
-    await this.opts.turns.applyItem(
-      threadId,
-      makeErrorItem({
-        id: this.opts.ids.next('item_error'),
-        turnId,
-        threadId,
-        message: finalMessage,
-        code,
-        severity
-      })
-    )
-    return exhausted ? 'failed' : 'continue'
   }
 
   /**
@@ -1155,7 +1108,7 @@ export class AgentLoop {
       modelCapabilities,
       signal,
       mode: modeContext,
-      goalNoToolRecoverySteps: this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0
+      goalNoToolRecoverySteps: this.roundOutcome.goalNoToolRecoverySteps(turnId)
     })
     const {
       mode: effectiveMode,
@@ -1200,6 +1153,9 @@ export class AgentLoop {
     )
     const streamToolMetadata = new Map(
       tools.map((tool) => [tool.name, { providerId: tool.providerId, toolKind: tool.toolKind }])
+    )
+    const toolProviderKinds = new Map(
+      tools.map((tool) => [tool.name, tool.providerKind])
     )
     const toolCatalog = buildToolCatalogFingerprint(toolSpecs)
     const toolCatalogDrift = this.telemetry.recordToolCatalogFingerprint({
@@ -1320,11 +1276,11 @@ export class AgentLoop {
       ...(runtimeContextInstruction ? [runtimeContextInstruction] : []),
       ...(instructionResolution.instruction ? [instructionResolution.instruction] : []),
       ...(activeGoalInstruction ? [activeGoalInstruction] : []),
-      ...(goalRecoveryInstruction && (this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0) > 0
+      ...(goalRecoveryInstruction && this.roundOutcome.goalNoToolRecoverySteps(turnId) > 0
         ? [goalRecoveryInstruction]
         : []),
       ...(activeTodoInstruction ? [activeTodoInstruction] : []),
-      ...((this.emptyPostToolRecoveryStepsByTurn.get(turnId) ?? 0) > 0
+      ...(this.roundOutcome.hasEmptyPostToolRecovery(turnId)
         ? [emptyPostToolRecoveryInstruction()]
         : []),
       ...imageGenerationReferenceInstructions({
@@ -1474,296 +1430,19 @@ export class AgentLoop {
         return { markdown: `\n![generated image](${relativePath})\n` }
       }
     })
-    if (streamed.kind === 'aborted') return 'aborted'
-    if (streamed.kind === 'failed') return 'failed'
-    const streamSnapshot = streamed.snapshot
-    const completedToolCalls = [...streamSnapshot.toolCalls]
-    if (completedToolCalls.length === 0) {
-      if (svgCompletion && !svgCompletion.validationAfterMutation) {
-        return this.recoverRequiredSvgCompletion(threadId, turnId, svgCompletion)
-      }
-      if (request.requiredToolName) {
-        if (
-          request.requiredToolName === CREATE_PLAN_TOOL_NAME &&
-          streamSnapshot.text.trim()
-        ) {
-          // The model asked the user to decide instead of producing a plan
-          // (ambiguous request). Don't materialize a question into a bogus
-          // plan — end the turn so the user can answer; the next plan turn
-          // produces a real plan once the scope is settled.
-          if (isPlanClarifyingQuestion(streamSnapshot.text)) {
-            return 'stop'
-          }
-          const callId = this.opts.ids.next('call_plan')
-          const provider = toolProviderMetadata.get(CREATE_PLAN_TOOL_NAME)
-          const toolKind = toolKinds.get(CREATE_PLAN_TOOL_NAME)
-          const sourceRequest = activePlanContext?.sourceRequest ||
-            latestUserMessageText(historyItems, turnId) ||
-            turn?.prompt ||
-            ''
-          const argumentsForFallback: Record<string, unknown> = activePlanContext
-            ? {
-                markdown: streamSnapshot.text.trim(),
-                operation: activePlanContext.operation,
-                plan_id: activePlanContext.planId,
-                plan_relative_path: activePlanContext.relativePath,
-                ...(sourceRequest ? { source_request: sourceRequest } : {}),
-                ...(activePlanContext.title ? { title: activePlanContext.title } : {})
-              }
-            : {
-                markdown: streamSnapshot.text.trim(),
-                operation: 'draft',
-                ...(sourceRequest ? { source_request: sourceRequest } : {})
-              }
-          const call: ToolCallLike = {
-            callId,
-            toolName: CREATE_PLAN_TOOL_NAME,
-            ...(provider?.providerId ? { providerId: provider.providerId } : {}),
-            toolKind,
-            arguments: argumentsForFallback
-          }
-          const itemId = `item_tool_${turnId}_${callId}`
-          await this.opts.turns.applyItem(
-            threadId,
-            makeToolCallItem({
-              id: itemId,
-              turnId,
-              threadId,
-              callId,
-              toolName: CREATE_PLAN_TOOL_NAME,
-              toolKind,
-              arguments: argumentsForFallback,
-              summary: 'Materialized assistant plan text into the required GUI plan.'
-            })
-          )
-          await this.opts.events.record({
-            kind: 'tool_call_ready',
-            threadId,
-            turnId,
-            itemId,
-            callId,
-            toolName: CREATE_PLAN_TOOL_NAME,
-            readyCount: 1
-          })
-          const dispatched = await this.dispatchToolCalls({
-            calls: [call],
-            threadId,
-            turnId,
-            workspace: thread?.workspace ?? '',
-            threadMode: effectiveMode,
-            activePlanContext,
-            guiDesignCanvas: turn?.guiDesignCanvas === true,
-            guiDesignMode: turn?.guiDesignMode === true,
-            guiDesignArtifact: turn?.guiDesignArtifact,
-            modelProviderId: providerId,
-            modelCapabilities,
-            activeSkillIds: skillResolution.activeSkillIds,
-            allowedToolNames,
-            toolProviderKinds: new Map(tools.map((tool) => [tool.name, tool.providerKind])),
-            approvalPolicy,
-            sandboxMode,
-            signal
-          })
-          if (dispatched === 'aborted') return 'aborted'
-          if (dispatched === 'all_suppressed') return 'stop'
-          return 'continue'
-        }
-        const message = `Model did not call the required \`${request.requiredToolName}\` tool for this GUI plan turn.`
-        await this.opts.events.record({
-          kind: 'error',
-          threadId,
-          turnId,
-          message,
-          code: 'required_tool_missing'
-        })
-        await this.opts.turns.applyItem(
-          threadId,
-          makeErrorItem({
-            id: this.opts.ids.next('item_error'),
-            turnId,
-            threadId,
-            message,
-            code: 'required_tool_missing'
-          })
-        )
-        return 'failed'
-      }
-      const hasCurrentTurnFileChange = historyItems.some(
-        (item) =>
-          item.turnId === turnId &&
-          item.kind === 'tool_call' &&
-          item.toolKind === 'file_change' &&
-          item.toolName !== CREATE_PLAN_TOOL_NAME
-      )
-      if (
-        streamSnapshot.stopReason === 'stop' &&
-        !streamSnapshot.text.trim() &&
-        hasCurrentTurnFileChange
-      ) {
-        const recoverySteps = (this.emptyPostToolRecoveryStepsByTurn.get(turnId) ?? 0) + 1
-        if (recoverySteps <= EMPTY_POST_TOOL_MAX_RECOVERY_STEPS) {
-          this.emptyPostToolRecoveryStepsByTurn.set(turnId, recoverySteps)
-          return 'continue'
-        }
-
-        const message =
-          'Model stopped without a final answer after tool execution, including after a recovery retry.'
-        this.rememberTurnFailure(turnId, {
-          error: message,
-          code: 'empty_post_tool_continuation',
-          severity: 'error'
-        })
-        await this.opts.events.record({
-          kind: 'error',
-          threadId,
-          turnId,
-          message,
-          code: 'empty_post_tool_continuation',
-          severity: 'error'
-        })
-        await this.opts.turns.applyItem(
-          threadId,
-          makeErrorItem({
-            id: this.opts.ids.next('item_error'),
-            turnId,
-            threadId,
-            message,
-            code: 'empty_post_tool_continuation',
-            severity: 'error'
-          })
-        )
-        return 'failed'
-      }
-      if (streamSnapshot.stopReason === 'stop' && activeGoalInstruction) {
-        const previousText = this.lastNoToolTextByTurn.get(turnId)
-        if (isRepeatedNoToolAssistantText(previousText, streamSnapshot.text)) {
-          const recoverySteps = (this.goalNoToolRecoveryStepsByTurn.get(turnId) ?? 0) + 1
-          if (recoverySteps <= GOAL_NO_TOOL_REPEAT_MAX_RECOVERY_STEPS) {
-            this.goalNoToolRecoveryStepsByTurn.set(turnId, recoverySteps)
-            this.lastNoToolTextByTurn.set(turnId, streamSnapshot.text)
-            return 'continue'
-          }
-          const message =
-            'Goal continuation stopped: the model kept repeating near-identical replies without calling tools or updating the goal.'
-          await this.opts.turns.applyItem(
-            threadId,
-            makeErrorItem({
-              id: this.opts.ids.next('item_error'),
-              turnId,
-              threadId,
-              message,
-              code: 'goal_repetition_stop',
-              severity: 'warning'
-            })
-          )
-          await this.opts.events.record({
-            kind: 'error',
-            threadId,
-            turnId,
-            message,
-            code: 'goal_repetition_stop',
-            severity: 'warning'
-          })
-          this.lastNoToolTextByTurn.delete(turnId)
-          this.goalNoToolRecoveryStepsByTurn.delete(turnId)
-          // A repetition stall on a turn that never made real progress would
-          // just be reproduced by a fresh resume turn, so suppress auto-resume.
-          // But a turn that edited files (etc.) and only then trailed off into
-          // "I'm done" filler IS advancing the goal — the common "stops right
-          // after editing files" case — so let the normal resume path carry it
-          // forward instead of stranding it.
-          if (!this.turnMadeProgress.has(turnId)) {
-            this.goalResumeSuppressedByTurn.add(turnId)
-          }
-          return 'stop'
-        }
-        this.goalNoToolRecoveryStepsByTurn.delete(turnId)
-        this.lastNoToolTextByTurn.set(turnId, streamSnapshot.text)
-        return 'continue'
-      }
-      if (streamSnapshot.stopReason === 'length') {
-        // The model hit its output-token ceiling and was cut off without a tool
-        // call. Don't report this as a clean completion — surface a warning so
-        // the truncation is visible instead of looking like the model "gave up".
-        const message =
-          'The model reached its maximum output length and the response was truncated. ' +
-          'Raise the model’s max output tokens, or ask it to continue or split the work into smaller steps.'
-        await this.opts.events.record({
-          kind: 'error',
-          threadId,
-          turnId,
-          message,
-          code: 'output_truncated',
-          severity: 'warning'
-        })
-        await this.opts.turns.applyItem(
-          threadId,
-          makeErrorItem({
-            id: this.opts.ids.next('item_error'),
-            turnId,
-            threadId,
-            message,
-            code: 'output_truncated',
-            severity: 'warning'
-          })
-        )
-        return 'stop'
-      }
-      return 'stop'
-    }
-    // Tool calls mean the turn is making progress again; reset the no-tool
-    // repetition window so unrelated later status texts are not compared.
-    this.lastNoToolTextByTurn.delete(turnId)
-    this.goalNoToolRecoveryStepsByTurn.delete(turnId)
-    this.emptyPostToolRecoveryStepsByTurn.delete(turnId)
-    const dispatched = await this.dispatchToolCalls({
-      calls: completedToolCalls,
+    return this.roundOutcome.resolve({
       threadId,
       turnId,
-      workspace: thread?.workspace ?? '',
-      threadMode: effectiveMode,
-      activePlanContext,
-      guiDesignCanvas: turn?.guiDesignCanvas === true,
-      guiDesignMode: turn?.guiDesignMode === true,
-      guiDesignArtifact: turn?.guiDesignArtifact,
-      modelProviderId: providerId,
-      modelCapabilities,
-      activeSkillIds: skillResolution.activeSkillIds,
-      allowedToolNames,
-      userInputDisabled,
-      imContext: turn?.imContext === true,
-      toolProviderKinds: new Map(tools.map((tool) => [tool.name, tool.providerKind])),
-      approvalPolicy,
-      sandboxMode,
-      signal
+      streamed,
+      ...(request.requiredToolName ? { requiredToolName: request.requiredToolName } : {}),
+      turn,
+      prepared,
+      ...(providerId ? { modelProviderId: providerId } : {}),
+      toolProviderMetadata,
+      toolKinds,
+      toolProviderKinds,
+      svgCompletion
     })
-    if (dispatched === 'aborted') return 'aborted'
-    if (dispatched === 'all_suppressed') {
-      if (dedicatedSvgTurn) {
-        const latestItems = await this.opts.sessionStore.loadItems(threadId)
-        const latestCompletion = svgArtifactCompletionState(latestItems, turnId)
-        if (!latestCompletion.validationAfterMutation) {
-          return this.recoverRequiredSvgCompletion(threadId, turnId, latestCompletion)
-        }
-      }
-      return 'stop'
-    }
-    if (dedicatedSvgTurn && completedToolCalls.some((call) =>
-      call.toolName === DESIGN_SVG_EDIT_TOOL_NAME ||
-      call.toolName === DESIGN_SVG_ANIMATE_TOOL_NAME ||
-      call.toolName === DESIGN_SVG_VALIDATE_TOOL_NAME
-    )) {
-      const latestItems = await this.opts.sessionStore.loadItems(threadId)
-      const latestCompletion = svgArtifactCompletionState(latestItems, turnId)
-      const progressed =
-        latestCompletion.mutationRevision !== svgCompletion?.mutationRevision ||
-        (!svgCompletion?.validationAfterMutation && latestCompletion.validationAfterMutation)
-      if (!progressed) {
-        return this.recoverRequiredSvgCompletion(threadId, turnId, latestCompletion)
-      }
-      this.svgCompletionRecoveryStepsByTurn.delete(turnId)
-    }
-    return 'continue'
   }
 
   private async dispatchToolCalls(input: ToolDispatchInput): Promise<ToolDispatchOutcome> {
