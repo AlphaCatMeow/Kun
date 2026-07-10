@@ -227,7 +227,7 @@ export async function createKunServeRuntime(
     models: activeOptions.models
   })
   const modelCapabilities = (model: string) => modelCapabilitiesForModel(model, modelProfiles)
-  const llmDebug = new LlmDebugRecorder()
+  const llmDebug = activeOptions.runtime?.llmDebug?.enabled ? new LlmDebugRecorder() : undefined
   // Providers whose kind is 'agent-sdk' don't get an HTTP client — their turns
   // are delegated to the embedded Claude Agent SDK (subscription) instead.
   const agentSdkProviderIds = agentSdkProviderIdsForOptions(activeOptions)
@@ -1009,7 +1009,7 @@ export async function createKunServeRuntime(
 function buildModelClientRouterInput(
   options: KunServeRuntimeOptions,
   modelCapabilities: (model: string) => ReturnType<typeof modelCapabilitiesForModel>,
-  llmDebug: LlmDebugRecorder
+  llmDebug?: LlmDebugRecorder
 ): { default: CompatModelClient; providers: Map<string, CompatModelClient> } {
   const streamIdleOverride =
     options.runtime?.streamIdleTimeoutMs !== undefined
@@ -1024,7 +1024,7 @@ function buildModelClientRouterInput(
     model: options.model,
     modelCapabilities,
     headers: options.headers,
-    debugSink: llmDebug,
+    ...(llmDebug ? { debugSink: llmDebug } : {}),
     ...streamIdleOverride
   })
   const providerClients = new Map<string, CompatModelClient>()
@@ -1042,7 +1042,7 @@ function buildModelClientRouterInput(
         model: options.model,
         modelCapabilities,
         headers: provider.headers,
-        debugSink: llmDebug,
+        ...(llmDebug ? { debugSink: llmDebug } : {}),
         ...streamIdleOverride
       })
     )

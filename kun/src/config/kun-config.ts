@@ -169,6 +169,11 @@ export const RuntimeTuningConfigSchema = z
       })
       .strict()
       .optional(),
+    /** Sensitive in-memory request capture; disabled unless explicitly enabled. */
+    llmDebug: z
+      .object({ enabled: z.boolean().default(false) })
+      .strict()
+      .optional(),
     toolArgumentRepair: z
       .object({
         maxStringBytes: PositiveInt.optional()

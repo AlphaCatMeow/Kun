@@ -126,6 +126,7 @@ describe('runtime factory usage carryover', () => {
     })
 
     try {
+      expect(runtime.llmDebug).toBeUndefined()
       expect(runtime.info().capabilities.instructions.enabled).toBe(true)
       const applied = await runtime.applyConfig({
         serve: { model: 'model-after' },
