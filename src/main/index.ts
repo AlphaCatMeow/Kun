@@ -48,7 +48,6 @@ import {
   normalizeAppBehaviorSettings,
   normalizeCheckpointCleanupSettings,
   normalizeKeyboardShortcuts,
-  resolveModelProviderProxyUrl,
   resolveKunRuntimeSettings,
   resolveTerminalColorMode,
   type AppBehaviorConfigV1,
@@ -76,7 +75,6 @@ import {
   waitForKunStartupSettled,
   type KunUnexpectedExitInfo
 } from './kun-process'
-import { resolveCodexOAuthApiKey } from './codex-auth'
 import { expandHomePath } from './settings-store'
 import { RestartBudget, type KunRuntimeStatus } from './kun-runtime-supervisor'
 import { configureLogger, logError, logWarn, pruneOnStartup } from './logger'
@@ -116,6 +114,10 @@ import {
 import { webhookUrl } from './claw-runtime-helpers'
 import { createTelegramRuntime, type TelegramRuntime, verifyTelegramBotToken } from './telegram-runtime'
 import { isKunHealthResponseBody } from './kun-health'
+import {
+  buildManagedRuntimeHotApplyBody,
+  classifyManagedRuntimeHotApplyResponse
+} from './runtime/kun-runtime-config-service'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // 品牌升级为 Kun 后仍保留旧 AppUserModelId:它必须和 electron-builder
@@ -1445,25 +1447,7 @@ async function applyManagedRuntimeSettingsHot(
       launch: getClawScheduleMcpLaunchConfig()
     }
   })
-  const serve = config.serve ?? {}
-  const defaultClientApiKey = resolveCodexOAuthApiKey(runtime.apiKey).apiKey
-  const body = {
-    ...config,
-    serve: {
-      ...serve,
-      apiKey: defaultClientApiKey || runtime.apiKey,
-      baseUrl: runtime.baseUrl,
-      modelProxyUrl: resolveModelProviderProxyUrl(settings),
-      endpointFormat: runtime.endpointFormat,
-      model: runtime.model,
-      approvalPolicy: runtime.approvalPolicy,
-      sandboxMode: runtime.sandboxMode,
-      tokenEconomyMode: runtime.tokenEconomyMode,
-      tokenEconomy: runtime.tokenEconomy,
-      toolOutputLimits: runtime.toolOutputLimits,
-      providers: serve.providers ?? {}
-    }
-  }
+  const body = buildManagedRuntimeHotApplyBody(settings, config)
 
   const headers = runtimeAuthHeaders(settings)
   headers.set('content-type', 'application/json')
@@ -1477,31 +1461,16 @@ async function applyManagedRuntimeSettingsHot(
       }
     )
     const text = await response.text()
-    if (response.status === 404 || response.status === 405) {
-      logWarn(source, 'Kun runtime does not support hot config apply; falling back to restart.')
-      return 'restart_required'
-    }
-    let parsed: unknown = null
-    if (text.trim()) {
-      try {
-        parsed = JSON.parse(text)
-      } catch {
-        parsed = null
-      }
-    }
-    if (response.ok && parsed && typeof parsed === 'object' && (parsed as { ok?: unknown }).ok === true) {
+    const outcome = classifyManagedRuntimeHotApplyResponse(response.status, response.ok, text)
+    if (outcome.result === 'applied') {
       noteRuntimeHealthy(source)
       return 'applied'
     }
-    const code = parsed && typeof parsed === 'object' ? (parsed as { code?: unknown }).code : undefined
-    const message = parsed && typeof parsed === 'object'
-      ? String((parsed as { message?: unknown }).message ?? text)
-      : text
-    if (code === 'restart_required') {
-      logWarn(source, `Kun hot config apply requested restart: ${message}`)
+    if (outcome.result === 'restart_required') {
+      logWarn(source, `Kun hot config apply requested restart: ${outcome.message}`)
       return 'restart_required'
     }
-    throw new Error(message || `Kun hot config apply failed with HTTP ${response.status}`)
+    throw new Error(outcome.message)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logWarn(source, `Kun hot config apply failed; falling back to restart: ${message}`)
