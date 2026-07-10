@@ -16,7 +16,8 @@ import {
   parseResearchCommand,
   parseReviewCommand,
   shouldCaptureFileMentionCommitKey,
-  shouldShowGoalFloater
+  shouldShowGoalFloater,
+  shouldSurfaceComposerUserInput
 } from './FloatingComposer'
 import {
   FloatingComposerModelPicker,
@@ -797,6 +798,14 @@ describe('FloatingComposer image transfer helpers', () => {
 })
 
 describe('FloatingComposer capability controls', () => {
+  it('surfaces user-input requests in the main Chat and Design composers (#843)', () => {
+    expect(shouldSurfaceComposerUserInput('chat', false)).toBe(true)
+    expect(shouldSurfaceComposerUserInput('design', false)).toBe(true)
+    expect(shouldSurfaceComposerUserInput('write', false)).toBe(false)
+    expect(shouldSurfaceComposerUserInput('claw', false)).toBe(false)
+    expect(shouldSurfaceComposerUserInput('design', true)).toBe(false)
+  })
+
   it('hides the default slash footer hint but keeps status hints', async () => {
     const previousLanguage = i18n.language
     await i18n.changeLanguage('en')

@@ -47,6 +47,7 @@ import { useTranslation } from 'react-i18next'
 import type { ModelProviderModelGroup } from '@shared/kun-gui-api'
 import type { AttachmentReference, ChatBlock, ReviewTarget } from '../../agent/types'
 import { useChatStore } from '../../store/chat-store'
+import type { AppRoute } from '../../store/chat-store-types'
 import { normalizeWorkspaceRoot } from '../../lib/workspace-path'
 import {
   composerFileReferenceKey,
@@ -138,6 +139,10 @@ import type { DesignComposerContext } from '../../design/design-composer-context
 
 export type { ComposerFileReference } from '../../lib/composer-file-references'
 export type { ComposerExecutionSettings } from './FloatingComposerExecutionPicker'
+
+export function shouldSurfaceComposerUserInput(route: AppRoute, compact: boolean): boolean {
+  return !compact && (route === 'chat' || route === 'design')
+}
 export type { DesignComposerContext } from '../../design/design-composer-context'
 
 const CONTEXT_CAPACITY_RING_SIZE = 24
@@ -518,11 +523,11 @@ export function FloatingComposer({
   const resolveUserInput = useChatStore((s) => s.resolveUserInput)
   const compact = variant === 'compact'
   // The pending ask-user request for the active thread, surfaced as a panel
-  // docked above this composer. Only the main chat composer hosts it: `blocks`
-  // is the active thread's, so a compact side composer would otherwise mirror
-  // it. The timeline bubble remains the record in every surface.
+  // docked above this composer. The main Chat and Design composers host it:
+  // `blocks` is the active thread's, so a compact side composer would otherwise
+  // mirror it. The timeline bubble remains the record in every surface.
   const pendingUserInputBlock = useMemo<PendingUserInputBlock | null>(() => {
-    if (compact || route !== 'chat') return null
+    if (!shouldSurfaceComposerUserInput(route, compact)) return null
     // Only surface a request the live runtime is actively awaiting. A stale
     // `pending` block rehydrated from a finished thread must not re-prompt the
     // user (issue #606) — resolving it would hit a dead gate.
