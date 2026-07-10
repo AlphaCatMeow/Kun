@@ -46,6 +46,7 @@ import {
   buildHistoryTranscript,
   DEFAULT_SDK_HISTORY_TRANSCRIPT_MAX_BYTES
 } from './sdk-context-assembler.js'
+import { shellSpawnEnv } from '../../adapters/tool/builtin-tool-utils.js'
 
 export interface AgentSdkRuntimeFactoryDeps {
   registry: CapabilityRegistry
@@ -550,7 +551,10 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
     },
 
     loadSdk: loadAgentSdk,
-    baseEnv: () => process.env,
+    // The embedded SDK launches a separate agent process. Give it the same
+    // scrubbed base environment as native shell tools; buildScopedEnv adds the
+    // selected SDK OAuth credential explicitly when it is needed.
+    baseEnv: () => shellSpawnEnv(),
     kunSystemPrompt: () => deps.prefix.systemPrompt,
     nextId: (prefix) => deps.ids.next(prefix),
     getTurnLimits: () => deps.turnLimits,

@@ -343,19 +343,74 @@ export function shellConfig(
   return { shell: 'sh', args: ['-lc'] }
 }
 
-// Environment for spawned shells/commands. On Windows, guarantees the core
-// system directories are on PATH so built-in utilities (`where`, `findstr`,
+const SAFE_SHELL_ENV_KEYS = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'LANG',
+  'TERM',
+  'COLORTERM',
+  'NO_COLOR',
+  'XDG_CACHE_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_RUNTIME_DIR'
+])
+
+const SAFE_WINDOWS_SHELL_ENV_KEYS = new Set([
+  'PATHEXT',
+  'SYSTEMROOT',
+  'WINDIR',
+  'COMSPEC',
+  'USERPROFILE',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PROGRAMDATA',
+  'PROGRAMFILES',
+  'PROGRAMFILES(X86)',
+  'USERNAME'
+])
+
+function copySafeShellEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) continue
+    const normalized = platform === 'win32' ? key.toUpperCase() : key
+    const allowed = SAFE_SHELL_ENV_KEYS.has(normalized) ||
+      normalized.startsWith('LC_') ||
+      (platform === 'win32' && SAFE_WINDOWS_SHELL_ENV_KEYS.has(normalized))
+    if (allowed) result[key] = value
+  }
+  return result
+}
+
+// Environment for agent-controlled shell commands. It deliberately passes a
+// small execution allow-list instead of inheriting the runtime's environment:
+// the serve process holds its bearer token and model credentials, while a
+// shell, verifier, operation, hook, or SDK child must never be able to print
+// them into a tool result. On Windows, also guarantee the core system
+// directories are on PATH so built-in utilities (`where`, `findstr`,
 // `tasklist`, …) and PATH-resolved tools (`node`, `npm`, `python`) remain
 // reachable from inside the shell even when the app inherited a PATH without
-// System32 — the same breakage that makes the bare `cmd.exe` spawn fail. The
-// directories are appended (never prepended), so the user's own PATH entries
-// keep their precedence. A no-op on non-Windows platforms.
+// System32. The directories are appended (never prepended), so the user's own
+// PATH entries keep their precedence.
 export function shellSpawnEnv(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform
 ): NodeJS.ProcessEnv {
-  if (platform !== 'win32') return env
-  const systemRoot = windowsSystemRoot(env)
+  const safeEnv = copySafeShellEnvironment(env, platform)
+  if (platform !== 'win32') return safeEnv
+  const systemRoot = windowsSystemRoot(safeEnv)
   const required = [
     win32.join(systemRoot, 'System32'),
     systemRoot,
@@ -363,13 +418,13 @@ export function shellSpawnEnv(
     win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0')
   ]
   // PATH casing varies on Windows (PATH vs Path); update the key as it exists.
-  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'Path'
-  const existing = (env[pathKey] ?? '').split(win32.delimiter).filter(Boolean)
+  const pathKey = Object.keys(safeEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path'
+  const existing = (safeEnv[pathKey] ?? '').split(win32.delimiter).filter(Boolean)
   const seen = new Set(existing.map((entry) => entry.toLowerCase().replace(/[\\/]+$/, '')))
   const missing = required.filter((dir) => !seen.has(dir.toLowerCase()))
-  if (missing.length === 0) return env
+  if (missing.length === 0) return safeEnv
   return {
-    ...env,
+    ...safeEnv,
     [pathKey]: [...existing, ...missing].join(win32.delimiter)
   }
 }

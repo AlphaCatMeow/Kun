@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { ToolCallLike, ToolHostContext } from '../ports/tool-host.js'
-import { terminateSpawnTree } from '../adapters/tool/builtin-tool-utils.js'
+import { shellSpawnEnv, terminateSpawnTree } from '../adapters/tool/builtin-tool-utils.js'
 
 /**
  * Hook phases. Tool phases run inside the tool host around every tool
@@ -315,6 +315,7 @@ async function runCommandHook(
   const payload = JSON.stringify(invocation)
   const child = spawn(hook.command, {
     cwd: hook.cwd || workspaceOf(invocation) || undefined,
+    env: shellSpawnEnv(),
     shell: true,
     stdio: ['pipe', 'pipe', 'pipe']
   })
