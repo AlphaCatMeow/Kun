@@ -39,6 +39,10 @@ import {
   compatHttpFailureLog,
   redactUrlForLog
 } from './compat-http-diagnostics.js'
+import {
+  CompatRequestCodecs,
+  type CompatChatMessage
+} from './compat-request-codecs.js'
 
 export { redactUrlForLog } from './compat-http-diagnostics.js'
 
@@ -177,9 +181,6 @@ type StreamPayloadResult = {
 }
 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 45_000
-// more headroom; a per-model `maxOutputTokens` capability still overrides both.
-const DEFAULT_MESSAGES_MAX_TOKENS = 8192
-const DEFAULT_MESSAGES_REASONING_MAX_TOKENS = 32_768
 
 /**
  * Multi-provider HTTP model client.
@@ -295,7 +296,8 @@ export class CompatModelClient implements ModelClient {
     const headers = this.buildHeaders(
       stream,
       endpointFormat,
-      this.isCodexResponsesLiteModel(requestModel)
+      this.config.baseUrl.includes('chatgpt.com/backend-api/codex') &&
+        this.capabilitiesForModel(requestModel).responsesMode === 'lite'
     )
     const retry = normalizeModelRequestRetryConfig(this.config.retry)
     const modelStreamLimits = normalizeModelStreamLimits(this.config.streamLimits)
@@ -572,212 +574,41 @@ export class CompatModelClient implements ModelClient {
     const model = requestModel || this.config.model
     const messages = this.collectMessages(request, model)
     const endpointFormat = options.endpointFormat ?? this.endpointFormat()
-    if (endpointFormat === 'responses') {
-      return this.buildResponsesRequestBody(request, model, messages, stream)
-    }
-    if (endpointFormat === 'messages') {
-      return this.buildAnthropicMessagesRequestBody(request, model, messages, stream)
-    }
-    const body: Record<string, unknown> = {
-      model,
-      stream,
-      messages: splitToolImageMessagesForOpenAi(messages)
-    }
-    const maxTokens = this.resolveMaxTokens(request, model)
-    if (maxTokens !== undefined) {
-      body.max_tokens = maxTokens
-    }
-    if (request.temperature !== undefined) {
-      body.temperature = request.temperature
-    }
-    if (request.topP !== undefined) {
-      body.top_p = request.topP
-    }
-    if (request.responseFormat === 'json_object') {
-      body.response_format = { type: 'json_object' }
-    }
-    if (stream && options.includeStreamUsage !== false) {
-      body.stream_options = { include_usage: true }
-    }
-    const isNativeDeepSeek = isDeepSeekHost(this.config.baseUrl)
-    const includeThinking = !isAzureOpenAiEndpoint(this.config.baseUrl)
-    applyReasoningEffort(body, request.reasoningEffort, {
-      includeThinking,
-      nativeDeepSeekHost: isNativeDeepSeek,
-      reasoning: this.modelReasoningFor(model),
-      maxReasoningEffort: isNativeDeepSeek ? 'max' : 'high'
-    })
-    if (
-      includeThinking &&
-      isDeepSeekHost(this.config.baseUrl) &&
-      !Object.prototype.hasOwnProperty.call(body, 'thinking') &&
-      isThinkingProducerModel(model)
-    ) {
-      body.thinking = { type: 'enabled' }
-    }
     const tools = normalizeToolSpecs(request.tools)
-    if (tools.length > 0) {
-      body.tools = tools.map((tool) => ({
-        type: 'function',
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.inputSchema
-        }
-      }))
-    }
-    return body
-  }
-
-  private buildResponsesRequestBody(
-    request: ModelRequest,
-    model: string,
-    messages: ChatMessage[],
-    stream: boolean
-  ): Record<string, unknown> {
-    const isCodex = this.isCodexEndpoint()
-    const isCodexLite = this.isCodexResponsesLiteModel(model)
-    // Codex requires system content in the top-level `instructions` field and
-    // will reject system-role items inside `input`. Split the message list so
-    // system messages go to instructions and the rest go to input.
-    const systemMessages = isCodex ? messages.filter((m) => m.role === 'system') : []
-    const nonSystemMessages = isCodex ? messages.filter((m) => m.role !== 'system') : messages
-    const inputMessages = splitToolImageMessagesForOpenAi(nonSystemMessages)
-    const instructions = systemMessages
-      .map((m) => chatContentToPlainText(m.content).trim())
-      .filter(Boolean)
-      .join('\n\n')
-    const responseTools = normalizeToolSpecs(request.tools).map((tool) => ({
-      type: 'function',
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.inputSchema
-    }))
-    const input = messagesToResponsesInput(inputMessages)
-    const litePrefix: Record<string, unknown>[] = isCodexLite
-      ? [
-          { type: 'additional_tools', role: 'developer', tools: responseTools },
-          ...(instructions
-            ? [{
-                type: 'message',
-                role: 'developer',
-                content: [{ type: 'input_text', text: instructions }]
-              }]
-            : [])
-        ]
-      : []
-    const body: Record<string, unknown> = {
-      model,
-      stream,
-      input: isCodexLite ? [...litePrefix, ...input] : input,
-      ...(isCodexLite
-        ? { store: false, tool_choice: 'auto', parallel_tool_calls: false }
-        : isCodex ? { instructions: instructions || ' ', store: false } : {})
-    }
-    const maxTokens = this.resolveMaxTokens(request, model)
-    if (maxTokens !== undefined && !isCodex) {
-      body.max_output_tokens = maxTokens
-    }
-    if (request.temperature !== undefined) {
-      body.temperature = request.temperature
-    }
-    if (request.topP !== undefined) {
-      body.top_p = request.topP
-    }
-    if (request.responseFormat === 'json_object') {
-      body.text = { format: { type: 'json_object' } }
-    }
-    const reasoning = responsesReasoningForEffort(
-      request.reasoningEffort,
-      this.modelReasoningFor(model),
-      {
-        maxEffort: isCodex ? 'xhigh' : 'high',
-        includeSummary: isCodex
-      }
-    )
-    if (reasoning || isCodexLite) {
-      body.reasoning = isCodexLite
-        ? { ...(reasoning ?? {}), context: 'all_turns' }
-        : reasoning!
-      if (isCodex) body.include = ['reasoning.encrypted_content']
-    }
-    if (!isCodexLite && responseTools.length > 0) {
-      body.tools = responseTools
-    }
-    if (!isCodexLite && this.isCodexEndpoint() && codexModelSupportsNativeImageGeneration(model)) {
-      const toolsArray = (body.tools ?? []) as Record<string, unknown>[]
-      toolsArray.push({ type: 'image_generation' })
-      body.tools = toolsArray
-    }
-    return body
-  }
-
-  private isCodexEndpoint(): boolean {
-    return this.config.baseUrl.includes('chatgpt.com/backend-api/codex')
-  }
-
-  private isCodexResponsesLiteModel(model: string): boolean {
-    return this.isCodexEndpoint() && this.capabilitiesForModel(model).responsesMode === 'lite'
-  }
-
-  private buildAnthropicMessagesRequestBody(
-    request: ModelRequest,
-    model: string,
-    messages: ChatMessage[],
-    stream: boolean
-  ): Record<string, unknown> {
-    const converted = messagesToAnthropic(
-      messages,
-      this.modelReasoningFor(model)?.requestProtocol === 'anthropic-thinking'
-    )
-    applyAnthropicCacheControl(converted.messages)
-    // Thinking tokens are billed against the same output budget, so reasoning
-    // models need a much larger default cap or their tool-call arguments get
-    // truncated. A per-model `maxOutputTokens` (or an explicit request value)
-    // still wins over these defaults.
     const reasoning = this.modelReasoningFor(model)
-    const resolvedEffort =
-      reasoning?.requestProtocol === 'anthropic-thinking'
-        ? resolveReasoningEffort(request.reasoningEffort, reasoning)
-        : undefined
-    const thinkingEnabled = resolvedEffort !== undefined && resolvedEffort !== 'off'
-    const body: Record<string, unknown> = {
+    const isCodex = this.config.baseUrl.includes('chatgpt.com/backend-api/codex')
+    const isCodexLite = isCodex && this.capabilitiesForModel(model).responsesMode === 'lite'
+    const codecs = new CompatRequestCodecs({
+      splitOpenAiMessages: (value) => splitToolImageMessagesForOpenAi(value as ChatMessage[]) as CompatChatMessage[],
+      responsesInput: (value) => messagesToResponsesInput(value as ChatMessage[]),
+      toAnthropic: (value, thinkingMode) => messagesToAnthropic(value as ChatMessage[], thinkingMode),
+      applyAnthropicCacheControl: (value) => applyAnthropicCacheControl(value as AnthropicMessage[]),
+      plainText: (value) => chatContentToPlainText(value as ChatMessage['content']),
+      applyChatReasoning: (body, effort, input) => applyReasoningEffort(body, effort, {
+        ...input,
+        maxReasoningEffort: input.nativeDeepSeekHost ? 'max' : 'high'
+      }),
+      responsesReasoning: (effort, capability, codecOptions) =>
+        responsesReasoningForEffort(effort, capability, codecOptions),
+      applyAnthropicReasoning: (body, effort, capability) =>
+        applyAnthropicReasoningEffort(body, effort, capability),
+      resolveReasoning: (effort, capability) => resolveReasoningEffort(effort, capability)
+    })
+    return codecs.build({
+      request,
       model,
+      messages,
+      tools,
       stream,
-      max_tokens: this.resolveMaxTokens(
-        request,
-        model,
-        thinkingEnabled ? DEFAULT_MESSAGES_REASONING_MAX_TOKENS : DEFAULT_MESSAGES_MAX_TOKENS
-      ),
-      messages: converted.messages
-    }
-    const systemText = request.responseFormat === 'json_object'
-      ? [converted.system, 'Return a valid JSON object only.']
-          .filter((item) => item.trim().length > 0)
-          .join('\n\n')
-      : converted.system
-    const systemBlocks: AnthropicContentBlock[] = systemText
-      ? [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }]
-      : []
-    if (systemBlocks.length > 0) {
-      body.system = systemBlocks
-    }
-    if (request.temperature !== undefined) {
-      body.temperature = request.temperature
-    }
-    if (request.topP !== undefined) {
-      body.top_p = request.topP
-    }
-    applyAnthropicReasoningEffort(body, request.reasoningEffort, this.modelReasoningFor(model))
-    const tools = normalizeToolSpecs(request.tools)
-    if (tools.length > 0) {
-      body.tools = tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.inputSchema
-      }))
-    }
-    return body
+      endpointFormat,
+      includeStreamUsage: options.includeStreamUsage,
+      baseUrl: this.config.baseUrl,
+      reasoning,
+      maxTokens: this.resolveMaxTokens(request, model),
+      isCodex,
+      isCodexLite,
+      codexNativeImageGeneration: codexModelSupportsNativeImageGeneration(model)
+    })
   }
 
   private collectMessages(request: ModelRequest, model: string): ChatMessage[] {
