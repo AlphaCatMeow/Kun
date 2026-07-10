@@ -56,6 +56,27 @@ describe('runtime event recorder', () => {
     expect(Math.min(...seqs)).toBeGreaterThan(100)
   })
 
+  it('commits and publishes same-thread events in sequence order', async () => {
+    const { recorder, bus, sessionStore } = buildRecorder()
+    const persisted: number[] = []
+    const published: number[] = []
+    vi.spyOn(sessionStore, 'appendEvent').mockImplementation(async (_threadId, event) => {
+      if (event.seq === 1) await new Promise((resolve) => setTimeout(resolve, 10))
+      persisted.push(event.seq)
+    })
+    vi.spyOn(bus, 'publish').mockImplementation((event) => {
+      published.push(event.seq)
+    })
+
+    await Promise.all([
+      recorder.record({ kind: 'heartbeat', threadId: 'thr_ordered' }),
+      recorder.record({ kind: 'heartbeat', threadId: 'thr_ordered' })
+    ])
+
+    expect(persisted).toEqual([1, 2])
+    expect(published).toEqual([1, 2])
+  })
+
   it('reads the persisted high-water mark only once per thread', async () => {
     const { recorder, sessionStore } = buildRecorder()
     const highestSeq = vi.spyOn(sessionStore, 'highestSeq')

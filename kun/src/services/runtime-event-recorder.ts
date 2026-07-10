@@ -42,12 +42,17 @@ export type RuntimeEventObserver = {
 export class RuntimeEventRecorder {
   private readonly options: RuntimeEventRecorderOptions
   private readonly lastIssuedSeq = new Map<string, number>()
+  private readonly commitQueues = new Map<string, Promise<unknown>>()
 
   constructor(options: RuntimeEventRecorderOptions) {
     this.options = options
   }
 
   async record(draft: RuntimeEventDraft): Promise<RuntimeEvent> {
+    return this.enqueue(draft.threadId, async () => this.recordCommitted(draft))
+  }
+
+  private async recordCommitted(draft: RuntimeEventDraft): Promise<RuntimeEvent> {
     const seq = draft.seq ?? (await this.nextSeq(draft.threadId))
     this.noteIssuedSeq(draft.threadId, seq)
     const event = RuntimeEventSchema.parse({
@@ -59,6 +64,18 @@ export class RuntimeEventRecorder {
     this.options.eventBus.publish(event)
     await this.notifyObservers(event)
     return event
+  }
+
+  private async enqueue<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.commitQueues.get(threadId) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(operation)
+    const guard = run.then(() => undefined, () => undefined)
+    this.commitQueues.set(threadId, guard)
+    try {
+      return await run
+    } finally {
+      if (this.commitQueues.get(threadId) === guard) this.commitQueues.delete(threadId)
+    }
   }
 
   /**
