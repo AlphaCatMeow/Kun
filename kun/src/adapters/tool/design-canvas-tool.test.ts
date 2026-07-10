@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   createDesignCanvasTool,
   createDesignCreateScreenTool,
+  createDesignSvgCreateTool,
   createDesignSystemTemplateTool,
   createDesignUpdateShapesTool,
   createDesignValidateTool,
   DESIGN_CANVAS_TOOL_NAME,
   DESIGN_CREATE_SCREEN_TOOL_NAME,
+  DESIGN_SVG_CREATE_TOOL_NAME,
   DESIGN_SYSTEM_TEMPLATE_TOOL_NAME,
   DESIGN_UPDATE_SHAPES_TOOL_NAME,
   DESIGN_VALIDATE_TOOL_NAME
@@ -91,6 +93,33 @@ describe('design_canvas tool', () => {
 })
 
 describe('dedicated design tools', () => {
+  it('creates a first-class SVG handoff only for product Design turns', async () => {
+    const tool = createDesignSvgCreateTool()
+    const designContext = { ...context(true), guiDesignMode: true }
+    expect(tool.name).toBe(DESIGN_SVG_CREATE_TOOL_NAME)
+    expect(tool.shouldAdvertise?.(designContext)).toBe(true)
+    expect(tool.shouldAdvertise?.(context(true))).toBe(false)
+    expect(tool.shouldAdvertise?.({ ...designContext, guiDesignCanvas: undefined })).toBe(false)
+
+    const result = await tool.execute({
+      name: 'Orbit loader',
+      brief: 'A compact looping vector loader',
+      width: 240,
+      height: 160
+    }, designContext)
+    expect(result.output).toMatchObject({
+      ok: true,
+      tool: DESIGN_SVG_CREATE_TOOL_NAME,
+      ops: [{
+        op: 'add-svg-artifact',
+        name: 'Orbit loader',
+        brief: 'A compact looping vector loader',
+        width: 240,
+        height: 160
+      }]
+    })
+  })
+
   it('normalizes design_create_screen calls to screen ops', async () => {
     const tool = createDesignCreateScreenTool()
     expect(tool.name).toBe(DESIGN_CREATE_SCREEN_TOOL_NAME)

@@ -19,6 +19,11 @@ export type DesignTurnSendOptions = DesignAssistantModelOptions & {
   target: DesignTurnTarget
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
+  guiDesignArtifact?: {
+    kind: 'svg'
+    artifactId: string
+    relativePath: string
+  }
 }
 
 export type CodeCanvasSendOptions = {
@@ -47,6 +52,10 @@ export function buildDesignTurnSendOverrides(options: DesignTurnSendOptions): Se
     displayText: options.displayText,
     ...buildAssistantModelOverrides(options),
     ...(options.target === 'canvas' ? { guiDesignCanvas: true, guiDesignMode: true } : {}),
+    ...(options.target === 'svg' ? {
+      guiDesignMode: true,
+      ...(options.guiDesignArtifact ? { guiDesignArtifact: options.guiDesignArtifact } : {})
+    } : {}),
     ...(attachmentIds.length ? { attachmentIds, attachments } : {})
   }
 }

@@ -63,6 +63,31 @@ describe('design turn dispatch', () => {
     expect(resolveProviderId).not.toHaveBeenCalled()
   })
 
+  it('scopes a dedicated SVG turn to its reserved artifact without enabling ShapeOps', () => {
+    const overrides = buildDesignTurnSendOverrides({
+      displayText: 'Animate the logo',
+      promptState: { assistantModel: '', assistantProviderId: '' },
+      resolveProviderId: () => '',
+      target: 'svg',
+      guiDesignArtifact: {
+        kind: 'svg',
+        artifactId: 'motion',
+        relativePath: '.kun-design/doc/motion/v2.svg'
+      }
+    })
+
+    expect(overrides).toEqual({
+      displayText: 'Animate the logo',
+      guiDesignMode: true,
+      guiDesignArtifact: {
+        kind: 'svg',
+        artifactId: 'motion',
+        relativePath: '.kun-design/doc/motion/v2.svg'
+      }
+    })
+    expect(overrides.guiDesignCanvas).toBeUndefined()
+  })
+
   it('builds the code-canvas overrides as a canvas agent turn', () => {
     expect(buildCodeCanvasSendOverrides({
       displayText: 'Apply markup',

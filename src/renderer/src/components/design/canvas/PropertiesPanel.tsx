@@ -25,8 +25,10 @@ import type { AlignAxis, DistributeAxis } from '../../../design/canvas/canvas-al
 import {
   DEFAULT_FILL,
   fillColor as resolveFillColor,
+  isArtifactFrame,
   isHtmlFrame,
   isImplicitImageSlot,
+  isRunningAppFrame,
   type Arrowhead,
   type CanvasShape,
   type DevicePreset,
@@ -260,9 +262,11 @@ function PropertiesPanelInner({ surface = 'design', onImplementDesign }: Props):
 
   // AI image holder: only fillable boxes (image/frame/rect) can be a slot the
   // agent fills. The marking flows into the AI snapshot so "fill this" resolves.
-  const canBeHolder =
-    !singleHtmlFrame &&
-    shapes.every((s) => s.type === 'image' || s.type === 'frame' || s.type === 'rect')
+  const canBeHolder = shapes.every((s) =>
+    !isArtifactFrame(s) &&
+    !isRunningAppFrame(s) &&
+    (s.type === 'image' || s.type === 'frame' || s.type === 'rect')
+  )
   const aiHolder = reduceField(shapes, (s) => Boolean(s.aiImageHolder))
   // Empty boxes are implicit slots: the agent fills a selected empty box on
   // request automatically, so no manual marking is needed for the common case.

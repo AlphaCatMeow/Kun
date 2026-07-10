@@ -108,6 +108,7 @@ function deepCloneShape(
     children: clonedChildren
   }
   delete clone.htmlArtifactId
+  delete clone.embeddedArtifact
   allClones.push(clone)
   return { clones: allClones, rootId: newId }
 }

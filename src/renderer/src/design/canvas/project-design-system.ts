@@ -29,7 +29,12 @@ export type ProjectDesignSystemParseResult =
 const TOKEN_KINDS = new Set(['color', 'gradient', 'type', 'space', 'radius', 'shadow'])
 const SHAPE_TYPES = new Set(['rect', 'ellipse', 'text', 'image', 'frame', 'group', 'arrow', 'line', 'draw'])
 const SLOT_KINDS = new Set(['text', 'image', 'color', 'visible'])
-const FORBIDDEN_COMPONENT_FIELDS = new Set(['htmlArtifactId', 'runningApp', 'agentNote'])
+const FORBIDDEN_COMPONENT_FIELDS = new Set([
+  'htmlArtifactId',
+  'embeddedArtifact',
+  'runningApp',
+  'agentNote'
+])
 const FORBIDDEN_VARIANT_FIELDS = new Set([
   'id',
   'type',
@@ -40,6 +45,7 @@ const FORBIDDEN_VARIANT_FIELDS = new Set([
   'componentId',
   'componentVersion',
   'htmlArtifactId',
+  'embeddedArtifact',
   'runningApp',
   'agentNote'
 ])

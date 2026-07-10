@@ -19,7 +19,8 @@ import {
 } from './canvas/project-design-system'
 import {
   createDesignDocumentId,
-  defaultDesignArtifactNode
+  defaultDesignArtifactNode,
+  isFileDesignArtifactKind
 } from './design-types'
 import type { DesignDocument } from './design-types'
 import type { DesignWorkspaceState } from './design-workspace-store-types'
@@ -51,6 +52,7 @@ import {
   userCreatedDocumentIds
 } from './design-workspace-store/helpers'
 import { duplicateHtmlArtifact, prepareDesignHtmlTurn } from './design-workspace-store/html-turn'
+import { duplicateSvgArtifact, prepareDesignSvgTurn } from './design-workspace-store/svg-turn'
 
 export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) => {
   const persistIndex = (): void => {
@@ -211,7 +213,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
             const existingIndex = artifacts.findIndex((item) => item.id === artifact.id)
             const existing = existingIndex >= 0 ? artifacts[existingIndex] : undefined
             const withDefaults =
-              artifact.kind === 'html'
+              isFileDesignArtifactKind(artifact.kind)
                 ? { ...artifact, designMdPath: artifact.designMdPath ?? artifactDesignMdPathOf(artifact.relativePath) }
                 : artifact
             const defaultNode =
@@ -248,7 +250,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
                   relativePath: version.relativePath,
                   updatedAt: version.createdAt,
                   versions: [version, ...item.versions],
-                  ...(item.kind === 'html'
+                  ...(isFileDesignArtifactKind(item.kind)
                     ? {
                         designMdPath: item.designMdPath ?? artifactDesignMdPathOf(version.relativePath),
                         previewStatus: 'pending' as const
@@ -345,7 +347,11 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
       set((state) =>
         applyToActiveDoc(state, (artifacts) =>
           artifacts.map((item) => {
-            if (item.id !== artifactId || item.kind !== 'html' || item.previewStatus === status) {
+            if (
+              item.id !== artifactId ||
+              !isFileDesignArtifactKind(item.kind) ||
+              item.previewStatus === status
+            ) {
               return item
             }
             changedAny = true
@@ -413,7 +419,12 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
       persistIndex()
     },
 
-    duplicateArtifact: (artifactId) => duplicateHtmlArtifact(artifactId, get),
+    duplicateArtifact: (artifactId) => {
+      const artifact = get().artifacts.find((item) => item.id === artifactId)
+      return artifact?.kind === 'svg'
+        ? duplicateSvgArtifact(artifactId, get)
+        : duplicateHtmlArtifact(artifactId, get)
+    },
 
     selectArtifactVersion: (artifactId, versionId) => {
       set((state) =>
@@ -426,7 +437,7 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
               ...item,
               relativePath: version.relativePath,
               updatedAt: version.createdAt,
-              ...(item.kind === 'html' ? { previewStatus: 'pending' as const } : {})
+              ...(isFileDesignArtifactKind(item.kind) ? { previewStatus: 'pending' as const } : {})
             }
           })
         )
@@ -485,6 +496,9 @@ export const useDesignWorkspaceStore = create<DesignWorkspaceState>((set, get) =
 
     prepareHtmlTurn: (brief, options = {}) =>
       prepareDesignHtmlTurn({ brief, options, get, set, persistIndex }),
+
+    prepareSvgTurn: (brief, options = {}) =>
+      prepareDesignSvgTurn({ brief, options, get, set, persistIndex }),
 
     setAiRailCollapsed: (collapsed) => {
       writeBrowserStorageItem(AI_RAIL_COLLAPSED_KEY, collapsed ? '1' : '0')

@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import type { CanvasShape } from '../../../../design/canvas/canvas-types'
-import { isHtmlFrame } from '../../../../design/canvas/canvas-types'
+import { embeddedArtifactOf, isArtifactFrame, isHtmlFrame } from '../../../../design/canvas/canvas-types'
 import { useDesignWorkspaceStore } from '../../../../design/design-workspace-store'
 import { ShapeDispatcher } from './ShapeDispatcher'
 import { ShapePaintDefs, primaryFillPaint } from './shape-paint'
@@ -47,15 +47,16 @@ function FrameShapeInner({
   objects: Record<string, CanvasShape>
 }) {
   const previewStatus = useDesignWorkspaceStore((s) => {
-    if (!isHtmlFrame(shape) || !shape.htmlArtifactId) return undefined
-    return s.artifacts.find((artifact) => artifact.id === shape.htmlArtifactId)?.previewStatus
+    const reference = embeddedArtifactOf(shape)
+    if (!isArtifactFrame(shape) || !reference) return undefined
+    return s.artifacts.find((artifact) => artifact.id === reference.id)?.previewStatus
   })
   const parallelStatus = useDesignWorkspaceStore((s) => {
     if (!isHtmlFrame(shape) || !shape.htmlArtifactId) return undefined
     return s.parallelPageStates[shape.htmlArtifactId]?.status
   })
 
-  if (isHtmlFrame(shape)) {
+  if (isArtifactFrame(shape)) {
     return (
       <HtmlFramePlaceholder
         shape={shape}

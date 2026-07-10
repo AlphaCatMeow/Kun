@@ -15,6 +15,7 @@ type Props = {
   onOpenAgentSettings?: () => void
   onImplementDesign?: (artifact: DesignArtifact) => void
   onScreenCreated?: (shapeId: string, userPrompt: string, brief?: string) => void
+  onSvgCreated?: (artifactId: string, shapeId: string, userPrompt: string, brief: string) => void
   onUseElementAsContext?: (context: DesignHtmlElementContext | null, promptSeed?: string) => void
   onRuntimeQualityFindings?: (payload: DesignRuntimeQualityPayload) => void
   onRequestQualityRepair?: (payload: DesignRuntimeQualityPayload) => void
@@ -32,6 +33,7 @@ export function DesignWorkspaceView({
   onOpenAgentSettings,
   onImplementDesign,
   onScreenCreated,
+  onSvgCreated,
   onUseElementAsContext,
   onRuntimeQualityFindings,
   onRequestQualityRepair
@@ -68,6 +70,7 @@ export function DesignWorkspaceView({
           onOpenAgentSettings={onOpenAgentSettings}
           onImplementDesign={onImplementDesign}
           onScreenCreated={onScreenCreated}
+          onSvgCreated={onSvgCreated}
           onUseElementAsContext={onUseElementAsContext}
           onRuntimeQualityFindings={onRuntimeQualityFindings}
           onRequestQualityRepair={onRequestQualityRepair}

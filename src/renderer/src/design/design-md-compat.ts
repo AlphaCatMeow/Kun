@@ -115,22 +115,34 @@ function formatPrototypeLinks(artifact: DesignArtifact): string[] {
   })
 }
 
-function formatScreens(
+function formatDesignArtifacts(
   artifacts: readonly DesignArtifact[] | undefined,
   designTarget: DesignContext['designTarget']
 ): string[] {
-  const html = (artifacts ?? []).filter((artifact) => artifact.kind === 'html')
-  if (html.length === 0) return ['_No HTML screens exported yet._']
+  const fileArtifacts = (artifacts ?? []).filter(
+    (artifact) => artifact.kind === 'html' || artifact.kind === 'svg'
+  )
+  if (fileArtifacts.length === 0) return ['_No HTML screens or SVG artifacts exported yet._']
   const lines: string[] = []
-  for (const artifact of html) {
+  for (const artifact of fileArtifacts) {
     const role = artifact.role ? `; role: ${artifact.role}` : ''
     const direction = artifact.direction ? `; direction: ${artifact.direction.name}` : ''
-    const viewportFrame = resolvePrototypeViewportFrame(artifact, designTarget)
+    if (artifact.kind === 'html') {
+      const viewportFrame = resolvePrototypeViewportFrame(artifact, designTarget)
+      lines.push(
+        `- **${artifact.title}** (${artifact.id}): HTML ${code(artifact.relativePath)}; frame ${viewportFrame.width}x${viewportFrame.height}; notes ${code(artifact.designMdPath)}${role}${direction}`
+      )
+      const links = formatPrototypeLinks(artifact)
+      if (links.length > 0) lines.push(...links)
+      continue
+    }
+
+    const frame = artifact.node
+      ? `; canvas frame ${Math.round(artifact.node.width)}x${Math.round(artifact.node.height)}`
+      : ''
     lines.push(
-      `- **${artifact.title}** (${artifact.id}): HTML ${code(artifact.relativePath)}; frame ${viewportFrame.width}x${viewportFrame.height}; notes ${code(artifact.designMdPath)}${role}${direction}`
+      `- **${artifact.title}** (${artifact.id}): SVG ${code(artifact.relativePath)}${frame}; notes ${code(artifact.designMdPath)}${role}${direction}`
     )
-    const links = formatPrototypeLinks(artifact)
-    if (links.length > 0) lines.push(...links)
   }
   return lines
 }
@@ -173,13 +185,14 @@ export function buildStitchDesignMarkdown(options: BuildStitchDesignMarkdownOpti
     '',
     '## Screens and Prototype Flow',
     '',
-    ...formatScreens(options.artifacts, options.designContext?.designTarget),
+    ...formatDesignArtifacts(options.artifacts, options.designContext?.designTarget),
     '',
     '## Implementation Guidance',
     '',
     '- Keep UI work aligned with the tokens, components, and screen flow above.',
-    '- Treat each screen DESIGN.md as the detailed handoff for states, responsive behavior, and implementation notes.',
+    '- Treat each HTML or SVG artifact DESIGN.md as the detailed handoff for states, responsive behavior, animation, and implementation notes.',
     '- Preserve planned prototype hrefs when converting HTML screens into production routes.',
+    '- Keep SVG motion declarative and preserve its viewBox, accessibility metadata, and reduced-motion behavior.',
     ''
   ].join('\n')
 }

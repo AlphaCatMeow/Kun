@@ -16,7 +16,7 @@ import type { DesignFrameContext, DesignTurnTarget } from './shared'
 type TargetWorkspaceState = Pick<
   DesignWorkspaceState,
   'activeArtifactId' | 'artifacts' | 'designContext' | 'prepareHtmlTurn'
->
+> & Partial<Pick<DesignWorkspaceState, 'prepareSvgTurn'>>
 
 export type ResolveDesignTurnTargetOptions = {
   promptText: string
@@ -27,6 +27,7 @@ export type ResolveDesignTurnTargetOptions = {
   suppressedIds?: ReadonlySet<string>
   htmlElementContext?: DesignHtmlElementContext | null
   explicitScreenShapeId?: string | null
+  explicitSvgArtifactId?: string | null
   viewBox?: ViewBox
 }
 
@@ -38,11 +39,38 @@ export type ResolvedDesignTurnTarget = {
   nextIntentMode?: DesignIntentMode
   basePath?: string
   htmlArtifactId?: string
+  svgArtifactId?: string
   designNotesPath?: string
   htmlElementContext?: DesignHtmlElementContext
   selectedFrame?: CanvasShape
   htmlFrameContext?: DesignFrameContext
   canvasSnapshot?: CanvasSnapshot
+}
+
+function resolveSvgArtifactTarget(
+  options: ResolveDesignTurnTargetOptions,
+  artifactId: string
+): ResolvedDesignTurnTarget | null {
+  const artifact = options.workspaceState.artifacts.find(
+    (item) => item.id === artifactId && item.kind === 'svg'
+  )
+  if (!artifact || !options.workspaceState.prepareSvgTurn) return null
+  const prep = options.workspaceState.prepareSvgTurn(options.promptText, {
+    artifactId: artifact.id,
+    forceNew: false,
+    activate: false,
+    reusePendingInitial: true
+  })
+  return {
+    target: 'svg',
+    artifactRelativePath: prep.relativePath,
+    basePath: prep.basePath,
+    svgArtifactId: prep.artifactId,
+    designNotesPath: prep.designMdPath,
+    visibleTargets: resolveVisibleTargets(options),
+    targetAutoRepairKey: designAutoRepairArtifactKey(artifact.id),
+    nextIntentMode: 'modify'
+  }
 }
 
 export function designAutoRepairArtifactKey(artifactId: string | undefined): string {
@@ -173,6 +201,10 @@ function resolveHtmlArtifactTarget(
 }
 
 export function resolveDesignTurnTarget(options: ResolveDesignTurnTargetOptions): ResolvedDesignTurnTarget {
+  if (options.explicitSvgArtifactId) {
+    const svgTarget = resolveSvgArtifactTarget(options, options.explicitSvgArtifactId)
+    if (svgTarget) return svgTarget
+  }
   const visibleTargets = resolveVisibleTargets(options)
   const primaryTarget = visibleTargets[0] ?? null
   if (primaryTarget?.kind === 'html-screen-frame') {
@@ -180,6 +212,10 @@ export function resolveDesignTurnTarget(options: ResolveDesignTurnTargetOptions)
   }
   if (primaryTarget?.kind === 'html-element' || primaryTarget?.kind === 'html-artifact') {
     return resolveHtmlArtifactTarget(options, primaryTarget)
+  }
+  if (primaryTarget?.kind === 'svg-artifact' || primaryTarget?.kind === 'svg-artifact-frame') {
+    const svgTarget = resolveSvgArtifactTarget(options, primaryTarget.artifact.id)
+    if (svgTarget) return svgTarget
   }
   const selectedIds = primaryTarget?.kind === 'canvas-selection'
     ? new Set(primaryTarget.selectedIds)

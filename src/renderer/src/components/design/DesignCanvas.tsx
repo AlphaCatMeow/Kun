@@ -6,6 +6,7 @@ import type { DesignRuntimeQualityPayload } from '../../design/design-html-quali
 import { setScreenCreationFactory } from '../../design/canvas/screen-artifact-bridge'
 import { ensureDesignBoardArtifact, findDesignBoardArtifact } from '../../design/design-board'
 import { createLinkedHtmlScreen } from '../../design/canvas/screen-lifecycle'
+import { createLinkedSvgArtifact } from '../../design/canvas/svg-artifact-lifecycle'
 import { designThreadBelongsToDocument } from '../../design/design-thread-workbench'
 import { useChatStore } from '../../store/chat-store'
 import { CanvasViewport } from './canvas/CanvasViewport'
@@ -20,6 +21,7 @@ type CanvasProps = {
   onOpenAgentSettings?: () => void
   onImplementDesign?: (artifact: DesignArtifact) => void
   onScreenCreated?: (shapeId: string, userPrompt: string, brief?: string) => void
+  onSvgCreated?: (artifactId: string, shapeId: string, userPrompt: string, brief: string) => void
   onUseElementAsContext?: (context: DesignHtmlElementContext | null, promptSeed?: string) => void
   onRuntimeQualityFindings?: (payload: DesignRuntimeQualityPayload) => void
   onRequestQualityRepair?: (payload: DesignRuntimeQualityPayload) => void
@@ -33,6 +35,7 @@ export function DesignCanvas({
   onOpenAgentSettings,
   onImplementDesign,
   onScreenCreated,
+  onSvgCreated,
   onUseElementAsContext,
   onRuntimeQualityFindings,
   onRequestQualityRepair
@@ -93,7 +96,28 @@ export function DesignCanvas({
     onScreenCreated,
     undefined,
     liveOpsErrorKey,
-    liveOpsThreadId
+    liveOpsThreadId,
+    boardArtifact
+      ? (request, userPrompt) => {
+          const created = createLinkedSvgArtifact({
+            boardArtifactId: boardArtifact.id,
+            name: request.name,
+            brief: request.brief,
+            x: request.x,
+            y: request.y,
+            width: request.width,
+            height: request.height
+          })
+          if (!created) return null
+          onSvgCreated?.(
+            created.artifactId,
+            created.shape.id,
+            userPrompt,
+            request.brief
+          )
+          return { artifactId: created.artifactId, shapeId: created.shape.id }
+        }
+      : undefined
   )
 
   if (!boardArtifact) {

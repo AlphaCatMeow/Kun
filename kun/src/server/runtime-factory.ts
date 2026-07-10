@@ -21,6 +21,7 @@ import {
 import { buildGoalLocalTools } from '../adapters/tool/goal-tools.js'
 import { buildTodoLocalTools } from '../adapters/tool/todo-tools.js'
 import { buildDesignCanvasLocalTools } from '../adapters/tool/design-canvas-tool.js'
+import { buildDesignSvgLocalTools } from '../adapters/tool/design-svg-tool.js'
 import { LocalToolHost, buildDefaultLocalTools } from '../adapters/tool/local-tool-host.js'
 import { createReadArtifactTool } from '../adapters/tool/artifact-tool.js'
 import { FileArtifactStore } from '../artifacts/artifact-store.js'
@@ -367,7 +368,7 @@ export async function createKunServeRuntime(
     available: true,
     // Safe to include in child runs: the tool is still gated per turn by
     // `context.guiDesignCanvas`, so only design-canvas child turns see it.
-    tools: buildDesignCanvasLocalTools()
+    tools: [...buildDesignCanvasLocalTools(), ...buildDesignSvgLocalTools()]
   }
 	  const taskGraphTool = createTaskGraphTool({ rootDir: join(activeOptions.dataDir, 'task-graphs') })
 	  let baseToolProviders = [

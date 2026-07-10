@@ -13,6 +13,7 @@ import {
   Pencil,
   RotateCcw,
   Settings,
+  Spline,
   Sun,
   Trash2,
   TriangleAlert
@@ -26,7 +27,7 @@ import { collectAgentDrawingArtifactIds, groupDesignArtifacts } from '../../desi
 import { findDesignBoardArtifact } from '../../design/design-board'
 import { useCanvasShapeStore } from '../../design/canvas/canvas-shape-store'
 import { useCanvasSelectionStore } from '../../design/canvas/canvas-selection-store'
-import { isHtmlFrame, shapeBounds } from '../../design/canvas/canvas-types'
+import { embeddedArtifactOf, isArtifactFrame, isHtmlFrame, shapeBounds } from '../../design/canvas/canvas-types'
 import { useCanvasViewportStore } from '../../design/canvas/canvas-viewport-store'
 import {
   SidebarCommandRow,
@@ -125,6 +126,14 @@ export function DesignSidebar({
     }
     return null
   }, [canvasObjects, selectedIds])
+  const selectedEmbeddedArtifactId = useMemo(() => {
+    for (const id of selectedIds) {
+      const shape = canvasObjects[id]
+      const reference = shape ? embeddedArtifactOf(shape) : null
+      if (reference) return reference.id
+    }
+    return null
+  }, [canvasObjects, selectedIds])
   const grouped = useMemo(
     () => groupDesignArtifacts(visibleArtifacts, screenLinkedIds),
     [screenLinkedIds, visibleArtifacts]
@@ -193,8 +202,8 @@ export function DesignSidebar({
     const boardArtifact = findDesignBoardArtifact(useDesignWorkspaceStore.getState().artifacts)
     if (boardArtifact) setActiveArtifact(boardArtifact.id)
 
-    const frame = Object.values(useCanvasShapeStore.getState().document.objects).find(
-      (shape) => shape && isHtmlFrame(shape) && shape.htmlArtifactId === artifact.id
+    const frame = Object.values(useCanvasShapeStore.getState().document.objects).find((shape) =>
+      shape && isArtifactFrame(shape) && embeddedArtifactOf(shape)?.id === artifact.id
     )
     const viewportStore = useCanvasViewportStore.getState()
     viewportStore.setActiveTool('select')
@@ -251,7 +260,7 @@ export function DesignSidebar({
   const renderArtifactRows = (items: DesignArtifact[]): ReactElement => (
     <ul className="space-y-1">
       {items.map((artifact) => {
-        const active = artifact.id === activeArtifactId
+        const active = artifact.id === activeArtifactId || artifact.id === selectedEmbeddedArtifactId
         const status = renderArtifactStatus(artifact)
         return (
           <li key={artifact.id}>
@@ -272,7 +281,9 @@ export function DesignSidebar({
             ) : (
               <SidebarTreeRow
                 active={active}
-                onClick={() => setActiveArtifact(artifact.id)}
+                onClick={() => artifact.kind === 'svg'
+                  ? handleSelectAgentDrawing(artifact)
+                  : setActiveArtifact(artifact.id)}
                 onDoubleClick={() => beginRename(artifact.id, artifact.title)}
                 title={artifact.title}
                 className="min-h-[34px]"
@@ -299,6 +310,8 @@ export function DesignSidebar({
               >
                 {artifact.kind === 'canvas' ? (
                   <Layers className="h-3.5 w-3.5 shrink-0 text-ds-muted" strokeWidth={1.9} />
+                ) : artifact.kind === 'svg' ? (
+                  <Spline className="h-3.5 w-3.5 shrink-0 text-[#6557ff]" strokeWidth={1.9} />
                 ) : (
                   <FileCode2 className="h-3.5 w-3.5 shrink-0 text-ds-muted" strokeWidth={1.9} />
                 )}
@@ -402,7 +415,10 @@ export function DesignSidebar({
   // The board canvas is an implementation surface, so keep the tree focused on
   // user-created drafts while exposing board layers below.
   const renderActiveDocBody = (): ReactElement => {
-    const items = grouped.html.filter((artifact) => !agentDrawingArtifactIds.has(artifact.id))
+    const items = [
+      ...grouped.html.filter((artifact) => !agentDrawingArtifactIds.has(artifact.id)),
+      ...grouped.svg
+    ]
     return (
       <div className="ml-3 mt-0.5 space-y-1 border-l border-[var(--ds-sidebar-row-ring)] pl-2">
         {items.length > 0 ? (

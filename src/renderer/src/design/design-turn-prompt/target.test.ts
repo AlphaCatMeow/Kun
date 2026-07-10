@@ -3,6 +3,7 @@ import {
   createDefaultShape,
   createEmptyDocument,
   createHtmlFrameShape,
+  createSvgFrameShape,
   ROOT_SHAPE_ID
 } from '../canvas/canvas-types'
 import type { DesignWorkspaceState } from '../design-workspace-store-types'
@@ -40,10 +41,23 @@ function boardArtifact(): DesignArtifact {
   }
 }
 
+function svgArtifact(id: string, title: string): DesignArtifact {
+  return {
+    id,
+    kind: 'svg',
+    title,
+    relativePath: `.kun-design/doc/${id}/v1.svg`,
+    designMdPath: `.kun-design/doc/${id}/DESIGN.md`,
+    createdAt: now,
+    updatedAt: now,
+    versions: [{ id: `${id}-v1`, relativePath: `.kun-design/doc/${id}/v1.svg`, createdAt: now, summary: '' }]
+  }
+}
+
 function workspaceState(artifacts: DesignArtifact[]): Pick<
   DesignWorkspaceState,
   'activeArtifactId' | 'artifacts' | 'designContext' | 'prepareHtmlTurn'
-> {
+> & Partial<Pick<DesignWorkspaceState, 'prepareSvgTurn'>> {
   return {
     activeArtifactId: artifacts[0]?.id ?? null,
     artifacts,
@@ -56,11 +70,68 @@ function workspaceState(artifacts: DesignArtifact[]): Pick<
         basePath: `.kun-design/doc/${artifactId}/v1.html`,
         designMdPath: `.kun-design/doc/${artifactId}/DESIGN.md`
       }
+    }),
+    prepareSvgTurn: vi.fn((_: string, options?: { artifactId?: string }) => {
+      const artifactId = options?.artifactId ?? 'fresh-svg'
+      return {
+        artifactId,
+        relativePath: `.kun-design/doc/${artifactId}/v2.svg`,
+        basePath: `.kun-design/doc/${artifactId}/v1.svg`,
+        designMdPath: `.kun-design/doc/${artifactId}/DESIGN.md`
+      }
     })
   }
 }
 
 describe('design turn target resolver', () => {
+  it('routes an explicit SVG artifact into a dedicated versioned SVG turn', () => {
+    const board = boardArtifact()
+    const svg = svgArtifact('orbit', 'Orbit loader')
+    const state = workspaceState([board, svg])
+
+    const resolved = resolveDesignTurnTarget({
+      promptText: 'Make the orbit ease in and out',
+      workspaceState: state,
+      boardArtifact: board,
+      canvasDocument: createEmptyDocument(),
+      selectedShapeIds: new Set(),
+      explicitSvgArtifactId: svg.id
+    })
+
+    expect(resolved).toMatchObject({
+      target: 'svg',
+      artifactRelativePath: '.kun-design/doc/orbit/v2.svg',
+      basePath: '.kun-design/doc/orbit/v1.svg',
+      svgArtifactId: 'orbit',
+      designNotesPath: '.kun-design/doc/orbit/DESIGN.md',
+      nextIntentMode: 'modify'
+    })
+    expect(state.prepareSvgTurn).toHaveBeenCalledWith(
+      'Make the orbit ease in and out',
+      expect.objectContaining({ artifactId: 'orbit', reusePendingInitial: true })
+    )
+  })
+
+  it('routes a selected SVG frame without needing an explicit override', () => {
+    const board = boardArtifact()
+    const svg = svgArtifact('mark', 'Animated mark')
+    const frame = { ...createSvgFrameShape('Animated mark', 24, 32, svg.id, 320, 240), id: 'frame_svg', parentId: ROOT_SHAPE_ID }
+    const doc = createEmptyDocument()
+    doc.objects[frame.id] = frame
+    doc.objects[ROOT_SHAPE_ID] = { ...doc.objects[ROOT_SHAPE_ID], children: [frame.id] }
+    const state = workspaceState([board, svg])
+
+    const resolved = resolveDesignTurnTarget({
+      promptText: 'Slow this animation down',
+      workspaceState: state,
+      boardArtifact: board,
+      canvasDocument: doc,
+      selectedShapeIds: new Set([frame.id])
+    })
+
+    expect(resolved).toMatchObject({ target: 'svg', svgArtifactId: 'mark' })
+  })
+
   it('resolves an explicit HTML screen frame as a screen turn', () => {
     const artifact = htmlArtifact('home', 'Home')
     const doc = createEmptyDocument()

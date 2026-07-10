@@ -33,6 +33,24 @@ describe('canvas-persistence round-trip', () => {
     expect(isHtmlFrame(loadedFrame)).toBe(true)
   })
 
+  it('preserves a first-class SVG artifact reference across serialize and parse', () => {
+    const doc = createEmptyDocument()
+    const frame = createDefaultShape('frame', 20, 40)
+    frame.embeddedArtifact = { id: 'motion-123', kind: 'svg' }
+    frame.width = 320
+    frame.height = 240
+    doc.objects[frame.id] = { ...frame, parentId: doc.rootId }
+    doc.objects[doc.rootId] = { ...doc.objects[doc.rootId], children: [frame.id] }
+
+    const parsed = parseCanvasDocument(serializeCanvasDocument(doc))
+    expect(parsed?.objects[frame.id]).toMatchObject({
+      embeddedArtifact: { id: 'motion-123', kind: 'svg' },
+      width: 320,
+      height: 240
+    })
+    expect(parsed?.objects[frame.id]?.htmlArtifactId).toBeUndefined()
+  })
+
   it('does not invent htmlArtifactId for plain frames', () => {
     const doc = createEmptyDocument()
     const reloaded = parseCanvasDocument(serializeCanvasDocument(doc))

@@ -9,6 +9,7 @@ import type {
   ToolHostContext,
   ToolHostResult,
   GuiPlanContext,
+  GuiDesignArtifactContext,
   ToolProviderKind
 } from '../ports/tool-host.js'
 import type { ModelCapabilityMetadata } from '../contracts/capabilities.js'
@@ -1194,6 +1195,8 @@ export class AgentLoop {
       threadMode: effectiveMode,
       ...(activePlanContext ? { guiPlan: activePlanContext } : {}),
       ...(turn?.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
+      ...(turn?.guiDesignMode ? { guiDesignMode: true } : {}),
+      ...(turn?.guiDesignArtifact ? { guiDesignArtifact: turn.guiDesignArtifact } : {}),
       ...(turn?.imContext ? { imContext: true } : {}),
       model: modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
@@ -1227,6 +1230,8 @@ export class AgentLoop {
       allowedToolNames,
       userInputDisabled,
       guiDesignCanvas: turn?.guiDesignCanvas === true,
+      guiDesignMode: turn?.guiDesignMode === true,
+      guiDesignArtifact: turn?.guiDesignArtifact,
       fingerprint: toolCatalog.fingerprint,
       toolNames: toolCatalog.toolNames,
       toolHashes: toolCatalog.toolHashes
@@ -1731,6 +1736,8 @@ export class AgentLoop {
             threadMode: effectiveMode,
             activePlanContext,
             guiDesignCanvas: turn?.guiDesignCanvas === true,
+            guiDesignMode: turn?.guiDesignMode === true,
+            guiDesignArtifact: turn?.guiDesignArtifact,
             modelProviderId: providerId,
             modelCapabilities,
             activeSkillIds: skillResolution.activeSkillIds,
@@ -1900,6 +1907,8 @@ export class AgentLoop {
       threadMode: effectiveMode,
       activePlanContext,
       guiDesignCanvas: turn?.guiDesignCanvas === true,
+      guiDesignMode: turn?.guiDesignMode === true,
+      guiDesignArtifact: turn?.guiDesignArtifact,
       modelProviderId: providerId,
       modelCapabilities,
       activeSkillIds: skillResolution.activeSkillIds,
@@ -1924,6 +1933,8 @@ export class AgentLoop {
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
     guiDesignCanvas?: boolean
+    guiDesignMode?: boolean
+    guiDesignArtifact?: GuiDesignArtifactContext
     modelProviderId?: string
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
@@ -2068,6 +2079,8 @@ export class AgentLoop {
     threadMode?: 'agent' | 'plan'
     activePlanContext?: GuiPlanContext
     guiDesignCanvas?: boolean
+    guiDesignMode?: boolean
+    guiDesignArtifact?: GuiDesignArtifactContext
     modelProviderId?: string
     modelCapabilities: ModelCapabilityMetadata
     activeSkillIds: readonly string[]
@@ -2085,6 +2098,8 @@ export class AgentLoop {
       threadMode: input.threadMode,
       ...(input.activePlanContext ? { guiPlan: input.activePlanContext } : {}),
       ...(input.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
+      ...(input.guiDesignMode ? { guiDesignMode: true } : {}),
+      ...(input.guiDesignArtifact ? { guiDesignArtifact: input.guiDesignArtifact } : {}),
       ...(input.imContext ? { imContext: true } : {}),
       model: input.modelCapabilities,
       ...(input.modelProviderId ? { modelProviderId: input.modelProviderId } : {}),
@@ -2713,6 +2728,8 @@ export class AgentLoop {
     allowedToolNames?: readonly string[]
     userInputDisabled?: boolean
     guiDesignCanvas?: boolean
+    guiDesignMode?: boolean
+    guiDesignArtifact?: GuiDesignArtifactContext
     fingerprint: string
     toolNames: string[]
     toolHashes: Record<string, string>
@@ -2725,7 +2742,9 @@ export class AgentLoop {
       activeSkillIds: [...input.activeSkillIds].sort(),
       allowedToolNames: input.allowedToolNames ? [...input.allowedToolNames].sort() : [],
       userInputDisabled: input.userInputDisabled === true,
-      guiDesignCanvas: input.guiDesignCanvas === true
+      guiDesignCanvas: input.guiDesignCanvas === true,
+      guiDesignMode: input.guiDesignMode === true,
+      guiDesignArtifact: input.guiDesignArtifact?.kind ?? null
     })
     const current: ToolCatalogSnapshot = {
       fingerprint: input.fingerprint,

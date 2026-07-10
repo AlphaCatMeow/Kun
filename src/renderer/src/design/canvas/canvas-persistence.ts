@@ -1,4 +1,4 @@
-import type { CanvasAgentNote, CanvasDocument, CanvasRunningAppFrame, CanvasShape, Point } from './canvas-types'
+import type { CanvasAgentNote, CanvasDocument, CanvasEmbeddedArtifact, CanvasRunningAppFrame, CanvasShape, Point } from './canvas-types'
 import { ROOT_SHAPE_ID } from './canvas-types'
 import { normalizeRunningAppUrl } from './running-app-frame'
 import type { DesignOperation, DesignOperationJournalEntry } from '../graph/design-graph-types'
@@ -72,6 +72,12 @@ function parseRunningAppFrame(raw: unknown): CanvasRunningAppFrame | null {
   }
 }
 
+function parseEmbeddedArtifact(raw: unknown): CanvasEmbeddedArtifact | null {
+  if (!isObj(raw) || typeof raw.id !== 'string' || !raw.id.trim()) return null
+  if (raw.kind !== 'html' && raw.kind !== 'svg') return null
+  return { id: raw.id.trim(), kind: raw.kind }
+}
+
 function parseShape(raw: unknown, id: string): CanvasShape | null {
   if (!isObj(raw)) return null
   const type = raw.type
@@ -90,6 +96,7 @@ function parseShape(raw: unknown, id: string): CanvasShape | null {
 
   const agentNote = parseCanvasAgentNote(raw.agentNote)
   const runningApp = parseRunningAppFrame(raw.runningApp)
+  const embeddedArtifact = parseEmbeddedArtifact(raw.embeddedArtifact)
   return {
     id,
     type: type as CanvasShape['type'],
@@ -123,6 +130,7 @@ function parseShape(raw: unknown, id: string): CanvasShape | null {
     ...(typeof raw.imageUrl === 'string' && { imageUrl: raw.imageUrl }),
     ...(typeof raw.aiImageHolder === 'boolean' && { aiImageHolder: raw.aiImageHolder }),
     ...(typeof raw.clipContent === 'boolean' && { clipContent: raw.clipContent }),
+    ...(embeddedArtifact ? { embeddedArtifact } : {}),
     ...(typeof raw.htmlArtifactId === 'string' && { htmlArtifactId: raw.htmlArtifactId }),
     ...(runningApp ? { runningApp } : {}),
     ...((raw.devicePreset === 'mobile' ||

@@ -7,7 +7,8 @@ export const DESIGN_CANVAS_TOOL_NAMES = new Set([
   'design_arrange',
   'design_system_template',
   'design_system',
-  'design_validate'
+  'design_validate',
+  'design_svg_create'
 ])
 
 export function isDesignCanvasToolName(name: unknown): boolean {
@@ -146,6 +147,35 @@ export function extractCanvasOpBlocksFromValue(value: unknown): unknown[][] {
   }
   const ops = normalizeDesignCanvasToolCall(value)
   return ops.length > 0 ? [ops] : []
+}
+
+export type SvgArtifactCreateSpec = {
+  name: string
+  brief: string
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+}
+
+export function extractSvgArtifactCreateSpecsFromValue(value: unknown): SvgArtifactCreateSpec[] {
+  if (!isRecord(value) || !Array.isArray(value.ops)) return []
+  return value.ops.flatMap((entry) => {
+    if (!isRecord(entry) || entry.op !== 'add-svg-artifact') return []
+    const name = typeof entry.name === 'string' ? entry.name.trim() : ''
+    const brief = typeof entry.brief === 'string' ? entry.brief.trim() : ''
+    if (!name || !brief) return []
+    const number = (candidate: unknown): number | undefined =>
+      typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : undefined
+    return [{
+      name,
+      brief,
+      ...(number(entry.x) !== undefined ? { x: number(entry.x) } : {}),
+      ...(number(entry.y) !== undefined ? { y: number(entry.y) } : {}),
+      ...(number(entry.width) !== undefined ? { width: number(entry.width) } : {}),
+      ...(number(entry.height) !== undefined ? { height: number(entry.height) } : {})
+    }]
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

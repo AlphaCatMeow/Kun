@@ -42,7 +42,7 @@ export function formatDerivedTokenLines(tokens: DerivedTokens | undefined): stri
   return lines
 }
 
-export type DesignTurnTarget = 'html' | 'canvas' | 'screen'
+export type DesignTurnTarget = 'html' | 'canvas' | 'screen' | 'svg'
 
 export type DesignFrameContext = {
   name?: string

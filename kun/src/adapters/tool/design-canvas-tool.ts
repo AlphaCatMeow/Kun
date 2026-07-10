@@ -8,6 +8,7 @@ export const DESIGN_SYSTEM_TOOL_NAME = 'design_system'
 /** @deprecated Source-compatible alias; the advertised tool is now `design_system`. */
 export const DESIGN_SYSTEM_TEMPLATE_TOOL_NAME = DESIGN_SYSTEM_TOOL_NAME
 export const DESIGN_VALIDATE_TOOL_NAME = 'design_validate'
+export const DESIGN_SVG_CREATE_TOOL_NAME = 'design_svg_create'
 
 export const DESIGN_CANVAS_MUTATION_TOOL_NAMES = [
   DESIGN_CANVAS_TOOL_NAME,
@@ -15,7 +16,8 @@ export const DESIGN_CANVAS_MUTATION_TOOL_NAMES = [
   DESIGN_UPDATE_SHAPES_TOOL_NAME,
   DESIGN_ARRANGE_TOOL_NAME,
   DESIGN_SYSTEM_TEMPLATE_TOOL_NAME,
-  DESIGN_VALIDATE_TOOL_NAME
+  DESIGN_VALIDATE_TOOL_NAME,
+  DESIGN_SVG_CREATE_TOOL_NAME
 ] as const
 
 type DesignCanvasAction = 'create_board' | 'add_screen' | 'update_shapes'
@@ -31,6 +33,9 @@ type DesignScreenSpec = {
 
 const SHOULD_ADVERTISE_DESIGN_TOOL = (context: { guiDesignCanvas?: boolean }) =>
   context.guiDesignCanvas === true
+
+const finiteNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined
 
 const DEVICE_PRESET_DESCRIPTION =
   'Optional explicit screen preset. Omit it unless the user asks for a different device; the renderer follows the current Design target (Web -> desktop 1280x800, App -> mobile 390x844).'
@@ -51,8 +56,58 @@ export function buildDesignCanvasLocalTools(): LocalTool[] {
     createDesignUpdateShapesTool(),
     createDesignArrangeTool(),
     createDesignSystemTemplateTool(),
-    createDesignValidateTool()
+    createDesignValidateTool(),
+    createDesignSvgCreateTool()
   ]
+}
+
+export function createDesignSvgCreateTool(): LocalTool {
+  return LocalToolHost.defineTool({
+    name: DESIGN_SVG_CREATE_TOOL_NAME,
+    description: [
+      'Create a first-class standalone SVG or SVG-motion artifact on the Design whiteboard.',
+      'Use this for vector logos, icons, loaders, illustrations, path animation, and reusable animated assets; do not use it for HTML product screens or raster imagery.',
+      'After this call the renderer reserves and selects the SVG artifact, then starts a dedicated SVG turn with structured edit and animation tools.'
+    ].join(' '),
+    toolKind: 'tool_call',
+    policy: 'auto',
+    shouldAdvertise: (context) => context.guiDesignCanvas === true && context.guiDesignMode === true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        brief: { type: 'string' },
+        x: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
+        y: { type: 'number', description: CANVAS_SNAPSHOT_PLACEMENT_DESCRIPTION },
+        width: { type: 'number', minimum: 64, maximum: 4096, description: 'SVG viewBox and whiteboard frame width. Defaults to 640.' },
+        height: { type: 'number', minimum: 64, maximum: 4096, description: 'SVG viewBox and whiteboard frame height. Defaults to 480.' }
+      },
+      required: ['name', 'brief'],
+      additionalProperties: false
+    },
+    execute: async (args) => {
+      const name = stringArg(args.name)
+      const brief = stringArg(args.brief)
+      if (!name || !brief) return designToolError('design_svg_create requires name and brief')
+      const width = finiteNumber(args.width)
+      const height = finiteNumber(args.height)
+      if (width !== undefined && (width < 64 || width > 4096)) {
+        return designToolError('design_svg_create width must be between 64 and 4096')
+      }
+      if (height !== undefined && (height < 64 || height > 4096)) {
+        return designToolError('design_svg_create height must be between 64 and 4096')
+      }
+      return designToolOutput(DESIGN_SVG_CREATE_TOOL_NAME, 'create_svg', [{
+        op: 'add-svg-artifact',
+        name,
+        brief,
+        ...(finiteNumber(args.x) !== undefined ? { x: finiteNumber(args.x) } : {}),
+        ...(finiteNumber(args.y) !== undefined ? { y: finiteNumber(args.y) } : {}),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {})
+      }])
+    }
+  })
 }
 
 export function createDesignCanvasTool(): LocalTool {

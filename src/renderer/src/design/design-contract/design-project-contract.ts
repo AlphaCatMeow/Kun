@@ -34,6 +34,7 @@ export type DesignProjectContractSummary = {
   title: string
   artifactCount: number
   screenCount: number
+  svgArtifactCount: number
   objectCount: number
   rootObjectCount: number
   directionCount: number
@@ -70,8 +71,11 @@ function formatBounds(object: DesignGraphObject): string {
 }
 
 function formatObjectSource(object: DesignGraphObject): string {
+  const artifactId = object.source?.artifactId ?? object.source?.htmlArtifactId
   const parts = [
-    object.source?.htmlArtifactId ? `artifact ${code(object.source.htmlArtifactId)}` : '',
+    artifactId
+      ? `${object.source?.artifactKind === 'svg' ? 'SVG artifact' : 'artifact'} ${code(artifactId)}`
+      : '',
     object.source?.componentId ? `component ${code(object.source.componentId)}` : ''
   ].filter(Boolean)
   return parts.length > 0 ? `; ${parts.join('; ')}` : ''
@@ -195,6 +199,7 @@ function buildDesignDocumentSection(options: BuildDesignProjectContractMarkdownO
     `- Document: ${document ? `${document.title} (${code(document.id)})` : '`TBD`'}`,
     `- Artifacts: ${artifacts.length}`,
     `- HTML screens: ${artifacts.filter((artifact) => artifact.kind === 'html').length}`,
+    `- SVG artifacts: ${artifacts.filter((artifact) => artifact.kind === 'svg').length}`,
     `- Canvas artifacts: ${artifacts.filter((artifact) => artifact.kind === 'canvas').length}`,
     ...(document?.activeArtifactId ? [`- Active artifact: ${code(document.activeArtifactId)}`] : [])
   ]
@@ -231,6 +236,7 @@ function buildAgentContractSection(): string[] {
     '- Use this file as the project-level source of truth before generating screens, editing code, or syncing to external design tools.',
     '- Treat Design Graph ids as stable canvas object ids. Preserve them when applying focused design operations.',
     '- Read each screen DESIGN.md for detailed states, responsive behavior, and implementation notes.',
+    '- Treat SVG artifact files as standalone vector sources; preserve stable element ids and declarative animation when iterating them.',
     '- When code bindings are active, prefer targeted source edits over regenerating entire files.',
     '- If a binding is stale or missing, repair the binding first or ask for confirmation before overwriting production code.',
     '',
@@ -267,6 +273,7 @@ export function summarizeDesignProjectContract(
     title: options.document?.title ?? 'Kun design project',
     artifactCount: artifacts.length,
     screenCount: artifacts.filter((artifact) => artifact.kind === 'html').length,
+    svgArtifactCount: artifacts.filter((artifact) => artifact.kind === 'svg').length,
     objectCount: Object.keys(graph.objects).length,
     rootObjectCount: graph.rootObjectIds.length,
     directionCount: Object.keys(graph.directions).length,

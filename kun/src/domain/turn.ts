@@ -1,4 +1,4 @@
-import type { GuiPlanContextJson, Turn, TurnReasoningEffort, TurnStatus } from '../contracts/turns.js'
+import type { GuiDesignArtifactContextJson, GuiPlanContextJson, Turn, TurnReasoningEffort, TurnStatus } from '../contracts/turns.js'
 import type { ThreadMode } from '../contracts/threads.js'
 import type { TurnItem } from '../contracts/items.js'
 
@@ -15,6 +15,7 @@ export function createTurnRecord(input: {
   guiPlan?: GuiPlanContextJson
   guiDesignCanvas?: boolean
   guiDesignMode?: boolean
+  guiDesignArtifact?: GuiDesignArtifactContextJson
   mode?: ThreadMode
   disableUserInput?: boolean
   imContext?: boolean
@@ -43,6 +44,7 @@ export function createTurnRecord(input: {
     ...(input.guiPlan ? { guiPlan: input.guiPlan } : {}),
     ...(input.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
     ...(input.guiDesignMode ? { guiDesignMode: true } : {}),
+    ...(input.guiDesignArtifact ? { guiDesignArtifact: input.guiDesignArtifact } : {}),
     ...(input.mode ? { mode: input.mode } : {}),
     ...(input.disableUserInput ? { disableUserInput: true } : {}),
     ...(input.imContext ? { imContext: true } : {}),

@@ -144,4 +144,41 @@ describe('design artifact persistence', () => {
     expect(artifact?.node).toEqual(defaultDesignArtifactNode(0))
     expect(artifact?.designMdPath).toBe('.kun-design/legacy/DESIGN.md')
   })
+
+  it('round-trips SVG metadata and reconstructs the newest version from disk', () => {
+    const createdAt = '2026-06-20T00:00:00.000Z'
+    const motion: DesignArtifact = {
+      id: 'motion',
+      kind: 'svg',
+      title: 'Orbit loader',
+      relativePath: '.kun-design/doc/motion/v2.svg',
+      createdAt,
+      updatedAt: createdAt,
+      versions: [
+        { id: 'motion-v1', relativePath: '.kun-design/doc/motion/v1.svg', createdAt, summary: 'First pass' },
+        { id: 'motion-v2', relativePath: '.kun-design/doc/motion/v2.svg', createdAt, summary: 'Refined loop' }
+      ],
+      designMdPath: '.kun-design/doc/motion/DESIGN.md',
+      previewStatus: 'ready'
+    }
+
+    expect(parseArtifactMeta(serializeArtifactMeta(motion), 'motion')).toMatchObject({
+      kind: 'svg',
+      relativePath: '.kun-design/doc/motion/v2.svg',
+      designMdPath: '.kun-design/doc/motion/DESIGN.md'
+    })
+    expect(reconstructArtifact('doc/motion', [
+      { name: 'v1.svg', path: '.kun-design/doc/motion/v1.svg', type: 'file', ext: '.svg' },
+      { name: 'v3.svg', path: '.kun-design/doc/motion/v3.svg', type: 'file', ext: '.svg' }
+    ])).toMatchObject({
+      id: 'motion',
+      kind: 'svg',
+      relativePath: '.kun-design/doc/motion/v3.svg',
+      versions: [
+        { id: 'motion-v3', relativePath: '.kun-design/doc/motion/v3.svg' },
+        { id: 'motion-v1', relativePath: '.kun-design/doc/motion/v1.svg' }
+      ],
+      designMdPath: '.kun-design/doc/motion/DESIGN.md'
+    })
+  })
 })

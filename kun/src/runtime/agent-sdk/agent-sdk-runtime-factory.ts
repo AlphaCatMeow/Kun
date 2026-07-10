@@ -31,7 +31,7 @@ import {
   isStalePlanContext
 } from '../../loop/agent-loop.js'
 import { DESIGN_MODE_INSTRUCTION } from '../../loop/design-mode.js'
-import type { GuiPlanContext } from '../../ports/tool-host.js'
+import type { GuiDesignArtifactContext, GuiPlanContext } from '../../ports/tool-host.js'
 import type { ThreadRecord } from '../../contracts/threads.js'
 import type {
   UserInputGate,
@@ -282,6 +282,8 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
       planMode?: boolean
       guiPlan?: GuiPlanContext
       guiDesignCanvas?: boolean
+      guiDesignMode?: boolean
+      guiDesignArtifact?: GuiDesignArtifactContext
       sandboxMode?: SandboxMode
       approvalPolicy?: ApprovalPolicy
       signal?: AbortSignal
@@ -300,6 +302,8 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
     ...(opts?.planMode ? { threadMode: 'plan' as const } : {}),
     ...(opts?.guiPlan ? { guiPlan: opts.guiPlan } : {}),
     ...(opts?.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
+    ...(opts?.guiDesignMode ? { guiDesignMode: true } : {}),
+    ...(opts?.guiDesignArtifact ? { guiDesignArtifact: opts.guiDesignArtifact } : {}),
     // Wire interactive input to kun's GUI panel (advertises `user_input`).
     ...(opts?.awaitUserInput ? { awaitUserInput: opts.awaitUserInput } : {}),
     // Execution supplies the real GUI approval callback; listing contexts stay
@@ -363,6 +367,8 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
       const ctx = toolContext(threadId, turnId, thread.workspace, {
         ...plan,
         ...(turn?.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
+        ...(turn?.guiDesignMode ? { guiDesignMode: true } : {}),
+        ...(turn?.guiDesignArtifact ? { guiDesignArtifact: turn.guiDesignArtifact } : {}),
         sandboxMode: thread.sandboxMode,
         awaitUserInput: makeAwaitUserInput(threadId, turnId, new AbortController().signal)
       })
@@ -461,6 +467,8 @@ export function createAgentSdkRuntime(deps: AgentSdkRuntimeFactoryDeps): AgentSd
       const ctx = toolContext(threadId, turnId, thread.workspace, {
         ...(plan ?? {}),
         ...(turn?.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
+        ...(turn?.guiDesignMode ? { guiDesignMode: true } : {}),
+        ...(turn?.guiDesignArtifact ? { guiDesignArtifact: turn.guiDesignArtifact } : {}),
         ...(sandboxMode ? { sandboxMode } : {}),
         approvalPolicy,
         signal: toolSignal,

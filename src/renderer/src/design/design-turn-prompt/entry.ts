@@ -21,6 +21,7 @@ import {
   formatHtmlIterationEditDisciplineLines,
   formatProjectDesignSystemLines
 } from './html-and-canvas'
+import { buildSvgTurnPrompt } from './svg'
 
 export function buildParallelDesignPagesPrompt(options: ParallelDesignPagesPromptOptions): string {
   const jobs = options.jobs.filter((job) => job.artifactId.trim() && job.relativePath.trim())
@@ -90,6 +91,9 @@ export function buildParallelDesignPagesPrompt(options: ParallelDesignPagesPromp
 export function buildDesignTurnPrompt(options: DesignTurnOptions): string {
   if (options.target === 'canvas') {
     return buildCanvasTurnPrompt(options)
+  }
+  if (options.target === 'svg') {
+    return buildSvgTurnPrompt(options)
   }
   if (options.target === 'screen') {
     return buildScreenTurnPrompt(options as ScreenTurnOptions)

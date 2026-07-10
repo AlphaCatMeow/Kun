@@ -515,6 +515,11 @@ export interface AgentProvider {
       }
       guiDesignCanvas?: boolean
       guiDesignMode?: boolean
+      guiDesignArtifact?: {
+        kind: 'svg'
+        artifactId: string
+        relativePath: string
+      }
       attachmentIds?: string[]
       workspaceCheckpointId?: string
       fileReferences?: UserFileReference[]

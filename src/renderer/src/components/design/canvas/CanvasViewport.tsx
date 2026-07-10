@@ -53,6 +53,7 @@ import {
 import { useCanvasViewportDocumentSync } from './canvas-viewport/use-canvas-viewport-document-sync'
 import { useProjectDesignSystemSync } from '../../../design/canvas/use-project-design-system-sync'
 import { DesignSystemBoardOverlay } from './DesignSystemBoardOverlay'
+import { SvgFrameOverlay } from './SvgFrameOverlay'
 
 export {
   resolveCanvasDesignSystemBaseDir,
@@ -547,16 +548,19 @@ export function CanvasViewport({
             </button>
           ) : null}
           {designArtifactOverlaysEnabled ? (
-            <HtmlFrameOverlay
-              workspaceRoot={workspaceRoot}
-              interactiveId={interactiveHtmlFrameId}
-              editingId={editingHtmlFrameId}
-              onToggleInteractive={toggleHtmlFrameInteractive}
-              onToggleModify={toggleHtmlFrameModify}
-              onUseElementAsContext={onUseElementAsContext}
-              onRuntimeQualityFindings={onRuntimeQualityFindings}
-              onRequestQualityRepair={onRequestQualityRepair}
-            />
+            <>
+              <HtmlFrameOverlay
+                workspaceRoot={workspaceRoot}
+                interactiveId={interactiveHtmlFrameId}
+                editingId={editingHtmlFrameId}
+                onToggleInteractive={toggleHtmlFrameInteractive}
+                onToggleModify={toggleHtmlFrameModify}
+                onUseElementAsContext={onUseElementAsContext}
+                onRuntimeQualityFindings={onRuntimeQualityFindings}
+                onRequestQualityRepair={onRequestQualityRepair}
+              />
+              <SvgFrameOverlay workspaceRoot={workspaceRoot} />
+            </>
           ) : null}
         </div>
         {designArtifactOverlaysEnabled ? (

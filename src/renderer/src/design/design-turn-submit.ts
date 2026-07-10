@@ -74,6 +74,7 @@ export type SubmitDesignTurnOptions = SubmitDesignTurnDeps & {
   suppressedIds?: ReadonlySet<string>
   htmlElementContext?: DesignHtmlElementContext | null
   explicitScreenShapeId?: string | null
+  explicitSvgArtifactId?: string | null
   clearAutoRepairScope?: (scopeKey: string) => void
 }
 
@@ -113,6 +114,7 @@ export async function submitDesignTurn(
     suppressedIds: options.suppressedIds,
     htmlElementContext: options.htmlElementContext,
     explicitScreenShapeId: options.explicitScreenShapeId,
+    explicitSvgArtifactId: options.explicitSvgArtifactId,
     viewBox: getCanvasViewportState().vbox
   })
   if (resolvedTarget.nextIntentMode) {
@@ -168,7 +170,14 @@ export async function submitDesignTurn(
       ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       target: resolvedTarget.target,
       attachmentIds: options.attachmentIds ?? [],
-      attachments: options.attachments ?? []
+      attachments: options.attachments ?? [],
+      ...(resolvedTarget.svgArtifactId ? {
+        guiDesignArtifact: {
+          kind: 'svg' as const,
+          artifactId: resolvedTarget.svgArtifactId,
+          relativePath: resolvedTarget.artifactRelativePath
+        }
+      } : {})
     })
   )
   return sent

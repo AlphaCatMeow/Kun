@@ -9,9 +9,11 @@ import {
   applyCanvasOpBlocks,
   applyCanvasOpsSince,
   extractCanvasOpBlocksFromValue,
+  extractSvgArtifactCreateSpecsFromValue,
   isDesignCanvasToolName,
   setLastCanvasOpErrors
 } from './apply-shape-ops'
+import type { SvgArtifactCreateSpec } from './apply-shape-ops'
 import { useCanvasSelectionStore } from './canvas-selection-store'
 import { useCanvasShapeStore } from './canvas-shape-store'
 import { takeScreenBrief } from './screen-artifact-bridge'
@@ -293,10 +295,16 @@ export function useApplyShapeOpsLive(
   onScreenCreated?: (shapeId: string, userPrompt: string, brief?: string) => void,
   executeOptions?: ExecuteOpsOptions,
   errorKey?: string,
-  targetThreadId?: string | null
+  targetThreadId?: string | null,
+  onSvgArtifactRequested?: (
+    request: SvgArtifactCreateSpec,
+    userPrompt: string
+  ) => { artifactId: string; shapeId: string } | null
 ): void {
   const onScreenCreatedRef = useRef(onScreenCreated)
   onScreenCreatedRef.current = onScreenCreated
+  const onSvgArtifactRequestedRef = useRef(onSvgArtifactRequested)
+  onSvgArtifactRequestedRef.current = onSvgArtifactRequested
 
   useEffect(() => {
     if (!enabled) return
@@ -409,6 +417,28 @@ export function useApplyShapeOpsLive(
           blocks: chatState.blocks
         })
       )
+      if (block.meta?.toolName === 'design_svg_create') {
+        const specs = extractSvgArtifactCreateSpecsFromValue(parsed)
+        if (specs.length === 0 || !onSvgArtifactRequestedRef.current) return
+        const userPrompt = userTextForCanvasFallback(userBlockForActiveCanvasTurn({
+          activeThreadId: chatState.activeThreadId,
+          currentTurnId: chatState.currentTurnId,
+          currentTurnUserId: chatState.currentTurnUserId,
+          blocks: chatState.blocks
+        }))
+        for (const spec of specs) {
+          const created = onSvgArtifactRequestedRef.current(spec, userPrompt)
+          if (created) affectedThisTurn.add(created.shapeId)
+        }
+        appliedToolBlockIds.add(block.id)
+        if (affectedThisTurn.size > 0) {
+          const ids = [...affectedThisTurn]
+          useCanvasSelectionStore.getState().select(ids)
+          useDesignAssistantStore.getState().markAiAffected(ids)
+          framedThisTurn = true
+        }
+        return
+      }
       const blocks = extractCanvasOpBlocksFromValue(parsed)
       if (blocks.length === 0) {
         return

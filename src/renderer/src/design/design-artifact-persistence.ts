@@ -1,7 +1,7 @@
 /**
  * Durable design-artifact metadata. The in-memory artifact list is mirrored to
  * a per-artifact `.kun-design/<id>/meta.json` sidecar so the list survives a
- * reload/restart (the HTML/canvas files alone can't recover title / versions /
+ * reload/restart (the HTML/SVG/canvas files alone can't recover title / versions /
  * implement provenance). On load the store rehydrates from these sidecars,
  * falling back to reconstructing from the on-disk files when a sidecar is
  * missing (artifacts created before this existed, or hand-authored dirs).
@@ -120,7 +120,7 @@ function parseDirection(value: unknown): DesignDirection | undefined {
 }
 
 function versionIdForRelativePath(artifactId: string, relativePath: string): string {
-  const match = /\/v(\d+)\.html$/i.exec(relativePath)
+  const match = /\/v(\d+)\.(?:html?|svg)$/i.exec(relativePath)
   return match ? `${artifactId}-v${match[1]}` : artifactId
 }
 
@@ -165,7 +165,8 @@ export function parseArtifactMeta(raw: string, dirId: string): DesignArtifact | 
         }))
     : []
   const parsedNode = parseNode(o.node)
-  const kind: DesignArtifact['kind'] = o.kind === 'canvas' ? 'canvas' : 'html'
+  const kind: DesignArtifact['kind'] =
+    o.kind === 'canvas' ? 'canvas' : o.kind === 'svg' ? 'svg' : 'html'
   const previewStatus =
     o.previewStatus === 'pending' || o.previewStatus === 'ready' || o.previewStatus === 'error'
       ? o.previewStatus
@@ -182,7 +183,9 @@ export function parseArtifactMeta(raw: string, dirId: string): DesignArtifact | 
     createdAt,
     updatedAt,
     versions: normalizedVersions,
-    ...(kind === 'html' ? { designMdPath: isStr(o.designMdPath) ? o.designMdPath : artifactDesignMdPathOf(relativePath) } : {}),
+    ...(kind !== 'canvas'
+      ? { designMdPath: isStr(o.designMdPath) ? o.designMdPath : artifactDesignMdPathOf(relativePath) }
+      : {}),
     ...(previewStatus ? { previewStatus } : {}),
     ...(parsedNode ? { node: parsedNode } : {}),
     ...(prototypeLinks ? { prototypeLinks } : {}),
@@ -209,17 +212,28 @@ export function reconstructArtifact(artifactDir: string, entries: WorkspaceEntry
     .filter((m): m is RegExpExecArray => m !== null)
     .map((m) => Number(m[1]))
     .sort((a, b) => b - a)
-  if (!hasCanvas && htmlVersions.length === 0) return null
+  const svgVersions = files
+    .map((f) => /^v(\d+)\.svg$/i.exec(f.name))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map((m) => Number(m[1]))
+    .sort((a, b) => b - a)
+  if (!hasCanvas && htmlVersions.length === 0 && svgVersions.length === 0) return null
   const now = new Date().toISOString()
-  const kind: DesignArtifact['kind'] = hasCanvas ? 'canvas' : 'html'
+  const kind: DesignArtifact['kind'] = hasCanvas
+    ? 'canvas'
+    : svgVersions.length > 0 && htmlVersions.length === 0
+      ? 'svg'
+      : 'html'
   const relativePath = hasCanvas
     ? `${normalizedDir}/canvas.json`
-    : `${normalizedDir}/v${htmlVersions[0]}.html`
+    : kind === 'svg'
+      ? `${normalizedDir}/v${svgVersions[0]}.svg`
+      : `${normalizedDir}/v${htmlVersions[0]}.html`
   const versions =
-    kind === 'html'
-      ? htmlVersions.map((n) => ({
+    kind !== 'canvas'
+      ? (kind === 'svg' ? svgVersions : htmlVersions).map((n) => ({
           id: `${dirId}-v${n}`,
-          relativePath: `${normalizedDir}/v${n}.html`,
+          relativePath: `${normalizedDir}/v${n}.${kind === 'svg' ? 'svg' : 'html'}`,
           createdAt: now,
           summary: ''
         }))
@@ -232,7 +246,7 @@ export function reconstructArtifact(artifactDir: string, entries: WorkspaceEntry
     createdAt: now,
     updatedAt: now,
     versions,
-    ...(kind === 'html' ? { designMdPath: `${normalizedDir}/DESIGN.md` } : {}),
+    ...(kind !== 'canvas' ? { designMdPath: `${normalizedDir}/DESIGN.md` } : {}),
     node: defaultDesignArtifactNode(0)
   }
 }

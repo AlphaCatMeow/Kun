@@ -349,7 +349,10 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
     'FIRST classify the request and commit to ONE primary lane:',
     '- EDIT AN EXISTING IMAGE — the user wants to change/edit/restyle/redo/recolor/fix/transform a picture that is ALREADY on the canvas, and the snapshot has a SELECTED `image` shape carrying an `imageUrl`. Phrasings like "change X into Y", "把这张图改成…", "改成 X", or "改一下这张图" all land here when the selected picture is the thing being changed. → call `generate_image` with `reference_image_paths` set to that `imageUrl`, then `design_update_shapes` that same shape (full rules under "Editing or restyling an EXISTING image" below). In this lane you MUST NOT use `design_create_screen` / `add-screen` and MUST NOT write or edit any HTML file.',
     '- FILL AN EMPTY SLOT — a selected empty holder / frame / rect (no `imageUrl`) needs a fresh picture. → `generate_image` from text only, then place it (see "Filling a selected panel" below).',
-    '- CREATE A STANDALONE IMAGE ASSET — the user asks for a logo, icon, illustration, poster, photo, brand mark, mascot, or reusable visual material, not a full page/screen. → call `generate_image`, then add/update an `image` shape on the canvas with the saved workspace-relative path. Keep it as a reusable whiteboard asset for later page drafts. Do NOT call `design_create_screen` and do NOT write or edit HTML.',
+    ...(codeCanvasMode ? [] : [
+      '- CREATE AN SVG OR SVG-MOTION ASSET — the user asks for a vector logo/icon/loader/illustration, path animation, animated mark, or reusable animated vector asset. → call `design_svg_create` exactly once with a clear name, self-contained brief, and optional dimensions. The system then opens a dedicated SVG turn with structured element and animation tools. Do NOT draw it with ShapeOps, generate a PNG, or create an HTML page.'
+    ]),
+    '- CREATE A STANDALONE RASTER IMAGE ASSET — the user asks for a photo, textured/painterly illustration, poster, mascot, or other raster visual material, not a full page/screen. → call `generate_image`, then add/update an `image` shape on the canvas with the saved workspace-relative path. Keep it as a reusable whiteboard asset for later page drafts. Do NOT call `design_create_screen` and do NOT write or edit HTML.',
     ...(codeCanvasMode
       ? [
           '- MAP CODE / ARCHITECTURE / FLOW — the user asks for system architecture, code structure, module relationships, data flow, API flow, state machine, database/schema map, sequence diagram, dependency graph, implementation plan, or debugging notes. → use `design_update_shapes` / `design_arrange` with normal frames, rects, text, arrows, lines, groups, and auto-layout. Do NOT use `design_create_screen` unless they explicitly ask for a UI screen mockup.'
@@ -383,6 +386,9 @@ export function buildCanvasTurnPrompt(options: DesignTurnOptions): string {
       ? '- `design_system`: { "operation": "create"|"update"|"apply"|"validate", ... }. Updates thread-scoped structured tokens/components without drawing a board.'
       : '- `design_system`: { "operation": "create"|"update"|"apply"|"validate", "name"?, "seedColor"?, "mode"?: "light"|"dark"|"both", "template"?: "app"|"saas"|"game"|"editor"|"mobile"|"portfolio", "tone"?: "clean"|"playful"|"premium"|"technical"|"editorial", "targetIds"? }. Updates the structured project design-system file; its fixed board appears automatically.',
     '- `design_validate`: { "targetIds"? }. Runs design-system lint so the next turn sees off-token colors, contrast issues, and tap-target problems; pass targetIds only when the user selected a specific screen/component to validate.',
+    ...(codeCanvasMode ? [] : [
+      '- `design_svg_create`: { "name": "Animated Logo", "brief": "...", "x"?, "y"?, "width"?, "height"? }. Creates one first-class .svg artifact and hands it to the dedicated SVG tools in the next automatic turn.'
+    ]),
     '- Legacy `design_canvas`: { "action": "create_board"|"add_screen"|"update_shapes", ... } remains accepted, but prefer the dedicated tools above.',
     '',
     'ShapeOp vocabulary for `update_shapes.ops` (each op is a JSON object inside the array):',

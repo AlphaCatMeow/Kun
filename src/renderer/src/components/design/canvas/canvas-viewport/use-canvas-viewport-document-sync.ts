@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  buildHtmlArtifactSyncKey,
-  removedLinkedHtmlArtifactIds,
-  syncHtmlArtifactsToBoardDocument,
-  syncHtmlFrameNodesToArtifacts
-} from '../../../../design/design-board'
+  buildDesignArtifactSyncKey,
+  removedLinkedArtifactIds,
+  syncDesignArtifactsToBoardDocument,
+  syncDesignArtifactFrameNodesToArtifacts
+} from '../../../../design/design-board-svg'
 import type { DesignTarget } from '../../../../design/design-context'
 import type { DesignArtifact } from '../../../../design/design-types'
 import type { CanvasDocument, Rect } from '../../../../design/canvas/canvas-types'
@@ -53,7 +53,7 @@ function focusBoundsToFitLater(bounds: Rect | null, cancelled: () => boolean): n
   })
 }
 
-function scheduleHtmlFrameNodeSync(
+function scheduleArtifactFrameNodeSync(
   doc: CanvasDocument,
   currentTimer: ReturnType<typeof setTimeout> | null,
   setTimer: (timer: ReturnType<typeof setTimeout> | null) => void,
@@ -62,7 +62,7 @@ function scheduleHtmlFrameNodeSync(
   if (currentTimer) clearTimeout(currentTimer)
   const timer = setTimeout(() => {
     setTimer(null)
-    if (!cancelled()) syncHtmlFrameNodesToArtifacts(doc)
+    if (!cancelled()) syncDesignArtifactFrameNodesToArtifacts(doc)
   }, 180)
   setTimer(timer)
   return timer
@@ -118,7 +118,7 @@ export function useCanvasViewportDocumentSync({
       )
       let addedFrameIds: string[] = []
       if (htmlFrameSyncEnabled) {
-        const synced = syncHtmlArtifactsToBoardDocument(doc, useDesignWorkspaceStore.getState().artifacts)
+        const synced = syncDesignArtifactsToBoardDocument(doc, useDesignWorkspaceStore.getState().artifacts)
         doc = synced.document
         addedFrameIds = synced.addedFrameIds
         if (synced.addedFrameIds.length > 0 || synced.updatedFrameIds.length > 0 || synced.removedFrameIds.length > 0) {
@@ -150,22 +150,22 @@ export function useCanvasViewportDocumentSync({
       persistCanvasDocument(workspaceRoot, artifactId, state.document, baseDir)
       if (!htmlFrameSyncEnabled) return
 
-      const removedArtifactIds = removedLinkedHtmlArtifactIds(prev.document, state.document)
+      const removedArtifactIds = removedLinkedArtifactIds(prev.document, state.document)
       if (removedArtifactIds.length > 0) {
         const designStore = useDesignWorkspaceStore.getState()
-        const htmlArtifacts = new Map(
+        const fileArtifacts = new Map(
           designStore.artifacts
-            .filter((item) => item.kind === 'html')
+            .filter((item) => item.kind === 'html' || item.kind === 'svg')
             .map((item) => [item.id, item])
         )
         for (const removedArtifactId of removedArtifactIds) {
-          const artifact = htmlArtifacts.get(removedArtifactId)
+          const artifact = fileArtifacts.get(removedArtifactId)
           if (artifact && artifact.node?.boardHidden !== true) {
             designStore.updateArtifactNode(removedArtifactId, { boardHidden: true })
           }
         }
       }
-      scheduleHtmlFrameNodeSync(state.document, nodeSyncTimer, setNodeSyncTimer, isCancelled)
+      scheduleArtifactFrameNodeSync(state.document, nodeSyncTimer, setNodeSyncTimer, isCancelled)
     })
 
     const unsubscribeDesignSystem = useDesignSystemStore.subscribe((state, prev) => {
@@ -183,15 +183,15 @@ export function useCanvasViewportDocumentSync({
     }
   }, [workspaceRoot, artifactId, baseDir, designSystemPersistenceEnabled, documentKey, htmlFrameSyncEnabled, resolvedDesignSystemBaseDir, viewportStorageKey])
 
-  const htmlArtifactSyncKey = useMemo(() => {
+  const designArtifactSyncKey = useMemo(() => {
     if (!htmlFrameSyncEnabled) return ''
-    return buildHtmlArtifactSyncKey(designArtifacts, designTarget)
+    return buildDesignArtifactSyncKey(designArtifacts, designTarget)
   }, [designArtifacts, designTarget, htmlFrameSyncEnabled])
 
   useEffect(() => {
     if (!docLoaded || !htmlFrameSyncEnabled || !artifactId || !workspaceRoot) return
     const current = useCanvasShapeStore.getState().document
-    const synced = syncHtmlArtifactsToBoardDocument(current, useDesignWorkspaceStore.getState().artifacts)
+    const synced = syncDesignArtifactsToBoardDocument(current, useDesignWorkspaceStore.getState().artifacts)
     if (
       synced.addedFrameIds.length === 0 &&
       synced.updatedFrameIds.length === 0 &&
@@ -221,7 +221,7 @@ export function useCanvasViewportDocumentSync({
       const bounds = boundsForShapeIds(synced.document, synced.addedFrameIds)
       if (bounds) useCanvasViewportStore.getState().zoomToFit(bounds, 72, { maxZoom: 1, minZoom: 0.04 })
     }
-  }, [artifactId, baseDir, docLoaded, documentKey, htmlArtifactSyncKey, htmlFrameSyncEnabled, workspaceRoot])
+  }, [artifactId, baseDir, designArtifactSyncKey, docLoaded, documentKey, htmlFrameSyncEnabled, workspaceRoot])
 
   useEffect(() => {
     if (!docLoaded || !artifactId || !workspaceRoot) return

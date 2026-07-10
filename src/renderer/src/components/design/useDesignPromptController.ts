@@ -49,6 +49,7 @@ export type SendDesignPromptOptions = {
   displayText?: string
   source?: DesignPromptSource
   screenShapeId?: string
+  svgArtifactId?: string
 }
 
 export function useDesignPromptController({
@@ -158,6 +159,7 @@ export function useDesignPromptController({
         suppressedIds: designContextSuppressedIds,
         htmlElementContext: designHtmlElementContext,
         explicitScreenShapeId: options.screenShapeId,
+        explicitSvgArtifactId: options.svgArtifactId,
         clearAutoRepairScope: clearDesignAutoRepairScope
       })
       if (result.status === 'missing-board' || result.status === 'file-error') {

@@ -145,7 +145,7 @@ export function executeDesignSystemShapeOp(
         break
       }
       const shapeIds = new Set(component.tree.map((shape) => shape.id))
-      const forbidden = new Set(['id', 'type', 'name', 'parentId', 'frameId', 'children', 'componentId', 'componentVersion', 'htmlArtifactId', 'runningApp', 'agentNote'])
+      const forbidden = new Set(['id', 'type', 'name', 'parentId', 'frameId', 'children', 'componentId', 'componentVersion', 'htmlArtifactId', 'embeddedArtifact', 'runningApp', 'agentNote'])
       const invalid = Object.entries(op.overrides).find(([shapeId, override]) =>
         !shapeIds.has(shapeId) || Object.keys(override).some((key) => forbidden.has(key))
       )

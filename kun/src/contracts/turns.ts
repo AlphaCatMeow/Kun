@@ -41,6 +41,19 @@ export const GuiPlanContextSchema = z.object({
 })
 export type GuiPlanContextJson = z.infer<typeof GuiPlanContextSchema>
 
+export const GuiDesignArtifactContextSchema = z.object({
+  kind: z.literal('svg'),
+  artifactId: z.string().min(1),
+  relativePath: z.string().min(1).refine((value) => {
+    const normalized = value.replaceAll('\\', '/')
+    return normalized === value &&
+      normalized.startsWith('.kun-design/') &&
+      !normalized.split('/').includes('..') &&
+      /\/v\d+\.svg$/i.test(normalized)
+  }, { message: 'relativePath must be a versioned SVG file under .kun-design' })
+})
+export type GuiDesignArtifactContextJson = z.infer<typeof GuiDesignArtifactContextSchema>
+
 export const TurnStatus = z.enum([
   'queued',
   'running',
@@ -98,6 +111,8 @@ export const TurnSchema = z.object({
   guiDesignCanvas: z.boolean().optional(),
   /** True only for product Design-mode turns; Code canvas turns leave it unset. */
   guiDesignMode: z.boolean().optional(),
+  /** Reserved first-class SVG artifact for structured SVG tools. */
+  guiDesignArtifact: GuiDesignArtifactContextSchema.optional(),
   /**
    * Optional per-turn mode override. When set, it takes precedence over
    * the thread mode for this turn (e.g. a Plan-mode turn inside an
@@ -159,6 +174,8 @@ export const StartTurnRequest = z.object({
   guiDesignCanvas: z.boolean().optional(),
   /** True only for product Design-mode turns; Code canvas turns leave it unset. */
   guiDesignMode: z.boolean().optional(),
+  /** Reserved first-class SVG artifact for structured SVG tools. */
+  guiDesignArtifact: GuiDesignArtifactContextSchema.optional(),
   /**
    * True when the caller cannot relay structured input prompts to a
    * user (IM bridges such as WeChat/Feishu, headless runs). The turn

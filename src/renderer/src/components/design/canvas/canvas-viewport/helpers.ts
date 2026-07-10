@@ -10,7 +10,7 @@ import { createArrowTool, createLineTool } from '../../../../design/canvas/tools
 import { createDrawTool } from '../../../../design/canvas/tools/draw-tool'
 import type { CanvasToolHandler } from '../../../../design/canvas/tools/tool-types'
 import type { CanvasDocument, CanvasTool, Rect, ViewBox } from '../../../../design/canvas/canvas-types'
-import { isHtmlFrame, shapeBounds, shapeGeometry } from '../../../../design/canvas/canvas-types'
+import { embeddedArtifactOf, isHtmlFrame, shapeBounds, shapeGeometry } from '../../../../design/canvas/canvas-types'
 
 const CANVAS_VIEWPORT_STORAGE_PREFIX = 'kun.design.canvasViewport'
 const IMAGE_ANNOTATION_ACTION_WIDTH = 112
@@ -287,7 +287,12 @@ function liveShapeShouldReplaceLoaded(
   loadedShape: CanvasDocument['objects'][string] | undefined
 ): boolean {
   if (!loadedShape) return true
-  return Boolean(liveShape.htmlArtifactId && liveShape.htmlArtifactId !== loadedShape.htmlArtifactId)
+  const liveArtifact = embeddedArtifactOf(liveShape)
+  const loadedArtifact = embeddedArtifactOf(loadedShape)
+  return Boolean(
+    liveArtifact &&
+      (liveArtifact.id !== loadedArtifact?.id || liveArtifact.kind !== loadedArtifact.kind)
+  )
 }
 
 export function mergeLoadedCanvasDocumentWithLiveChanges(

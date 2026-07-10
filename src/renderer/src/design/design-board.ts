@@ -1,6 +1,7 @@
 import {
   createEmptyDocument,
   createHtmlFrameShape,
+  isArtifactFrame,
   isHtmlFrame,
   type CanvasDocument,
   type CanvasShape,
@@ -401,12 +402,14 @@ export function syncHtmlArtifactsToBoardDocument(
     ),
     useCanvasViewportStore.getState().vbox
   )
-  const occupiedAutoRects: Rect[] = Array.from(framesByArtifactId.values()).map((shape) => ({
-    x: shape.x,
-    y: shape.y,
-    width: shape.width,
-    height: shape.height
-  }))
+  const occupiedAutoRects: Rect[] = Object.values(workingDoc.objects)
+    .filter((shape) => shape.visible !== false && isArtifactFrame(shape))
+    .map((shape) => ({
+      x: shape.x,
+      y: shape.y,
+      width: shape.width,
+      height: shape.height
+    }))
   const placedAutoRects: Rect[] = []
   let autoIndex = 0
 

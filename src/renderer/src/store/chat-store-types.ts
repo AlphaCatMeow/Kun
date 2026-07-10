@@ -52,6 +52,7 @@ export type QueuedUserMessage = {
   guiDesignCanvas?: boolean
   /** True only for the product Design surface; Code whiteboards leave this unset. */
   guiDesignMode?: boolean
+  guiDesignArtifact?: GuiDesignArtifactMessageContext
 }
 
 /**
@@ -68,6 +69,12 @@ export type GuiPlanMessageContext = {
   title?: string
 }
 
+export type GuiDesignArtifactMessageContext = {
+  kind: 'svg'
+  artifactId: string
+  relativePath: string
+}
+
 export type SendMessageOverrides = {
   queued?: QueuedUserMessage
   model?: string
@@ -78,6 +85,7 @@ export type SendMessageOverrides = {
   guiPlan?: GuiPlanMessageContext
   guiDesignCanvas?: boolean
   guiDesignMode?: boolean
+  guiDesignArtifact?: GuiDesignArtifactMessageContext
   attachmentIds?: string[]
   attachments?: AttachmentReference[]
   fileReferences?: UserFileReference[]

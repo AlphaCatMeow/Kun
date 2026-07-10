@@ -167,6 +167,11 @@ export type CanvasRunningAppFrame = {
   status?: CanvasRunningAppFrameStatus
 }
 
+export type CanvasEmbeddedArtifact = {
+  id: string
+  kind: 'html' | 'svg'
+}
+
 export type CanvasShape = {
   id: string
   type: ShapeType
@@ -230,6 +235,9 @@ export type CanvasShape = {
    */
   aiImageHolder?: boolean
   clipContent?: boolean
+  /** First-class file artifact rendered over this frame. */
+  embeddedArtifact?: CanvasEmbeddedArtifact
+  /** @deprecated Read for legacy canvas documents; new code should use embeddedArtifact. */
   htmlArtifactId?: string
   /** Running app portal frame, usually a localhost route captured for Onlook-style code binding. */
   runningApp?: CanvasRunningAppFrame
@@ -269,7 +277,22 @@ export type CanvasDocumentGraphMetadata = {
 export type DevicePreset = 'mobile' | 'tablet' | 'desktop'
 
 export function isHtmlFrame(shape: CanvasShape): boolean {
-  return shape.type === 'frame' && Boolean(shape.htmlArtifactId)
+  const reference = embeddedArtifactOf(shape)
+  return shape.type === 'frame' && reference?.kind === 'html'
+}
+
+export function isSvgFrame(shape: CanvasShape): boolean {
+  const reference = embeddedArtifactOf(shape)
+  return shape.type === 'frame' && reference?.kind === 'svg'
+}
+
+export function isArtifactFrame(shape: CanvasShape): boolean {
+  return shape.type === 'frame' && embeddedArtifactOf(shape) !== null
+}
+
+export function embeddedArtifactOf(shape: CanvasShape): CanvasEmbeddedArtifact | null {
+  if (shape.embeddedArtifact?.id) return shape.embeddedArtifact
+  return shape.htmlArtifactId ? { id: shape.htmlArtifactId, kind: 'html' } : null
 }
 
 export function isRunningAppFrame(shape: CanvasShape): boolean {
@@ -285,15 +308,15 @@ export function isCanvasPortalFrame(shape: CanvasShape): boolean {
  * selects one and asks for a picture, the design agent fills it in place — no
  * need to explicitly mark it with `aiImageHolder`. An `image` with no picture,
  * and a childless `frame`/`rect` are the placeholders people draw where a
- * generated image should go. Portal frames (generated HTML or running apps)
- * are never slots — they already carry content.
+ * generated image should go. Artifact frames (HTML or SVG) and running apps
+ * are never slots — they already carry externally rendered content.
  */
 export function isImplicitImageSlot(shape: CanvasShape): boolean {
   switch (shape.type) {
     case 'image':
       return !shape.imageUrl
     case 'frame':
-      return !isCanvasPortalFrame(shape) && shape.children.length === 0
+      return !isArtifactFrame(shape) && !isRunningAppFrame(shape) && shape.children.length === 0
     case 'rect':
       return shape.children.length === 0
     default:
@@ -427,7 +450,25 @@ export function createHtmlFrameShape(
   shape.width = dims.width
   shape.height = dims.height
   shape.htmlArtifactId = artifactId
+  shape.embeddedArtifact = { id: artifactId, kind: 'html' }
   shape.devicePreset = preset
+  return shape
+}
+
+export function createSvgFrameShape(
+  name: string,
+  x: number,
+  y: number,
+  artifactId: string,
+  width = 640,
+  height = 480
+): CanvasShape {
+  const shape = createDefaultShape('frame', x, y)
+  shape.name = name
+  shape.width = Math.max(64, width)
+  shape.height = Math.max(64, height)
+  shape.embeddedArtifact = { id: artifactId, kind: 'svg' }
+  shape.clipContent = true
   return shape
 }
 

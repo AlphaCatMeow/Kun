@@ -52,6 +52,12 @@ export type GuiPlanContext = {
   turnId?: string
 }
 
+export type GuiDesignArtifactContext = {
+  kind: 'svg'
+  artifactId: string
+  relativePath: string
+}
+
 export type ToolHostContext = {
   threadId: string
   turnId: string
@@ -66,6 +72,10 @@ export type ToolHostContext = {
   guiPlan?: GuiPlanContext
   /** True when the active GUI turn is allowed to mutate the design canvas. */
   guiDesignCanvas?: boolean
+  /** True only for product Design turns (not Code sidebar canvas turns). */
+  guiDesignMode?: boolean
+  /** Reserved SVG artifact exposed to structured SVG tools for this turn. */
+  guiDesignArtifact?: GuiDesignArtifactContext
   /** True when the active turn originated from an IM bridge. */
   imContext?: boolean
   /** Active model capability metadata used by capability-aware providers. */

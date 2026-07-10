@@ -151,23 +151,28 @@ describe('createAgentSdkRuntime handlesProvider', () => {
 
 describe('createAgentSdkRuntime turn context', () => {
   test('exposes Design tools and the Design intent policy only for Design canvas turns', async () => {
-    const listedContexts: Array<{ guiDesignCanvas?: boolean }> = []
-    const executedContexts: Array<{ guiDesignCanvas?: boolean }> = []
+    const listedContexts: Array<{ guiDesignCanvas?: boolean; guiDesignArtifact?: { kind: 'svg'; artifactId: string; relativePath: string } }> = []
+    const executedContexts: Array<{ guiDesignCanvas?: boolean; guiDesignArtifact?: { kind: 'svg'; artifactId: string; relativePath: string } }> = []
     const designTurn = {
       id: 'tn',
       prompt: '做一个登录页',
       guiDesignCanvas: true,
-      guiDesignMode: true
+      guiDesignMode: true,
+      guiDesignArtifact: {
+        kind: 'svg',
+        artifactId: 'motion',
+        relativePath: '.kun-design/doc/motion/v1.svg'
+      }
     } as ThreadRecord['turns'][number]
     const runtime = createAgentSdkRuntime({
       registry: {
-        listTools: (context: { guiDesignCanvas?: boolean }) => {
+        listTools: (context: { guiDesignCanvas?: boolean; guiDesignArtifact?: { kind: 'svg'; artifactId: string; relativePath: string } }) => {
           listedContexts.push(context)
           return context.guiDesignCanvas
             ? [{ name: 'design_create_screen', description: 'Create screens', inputSchema: {} }]
             : []
         },
-        resolveTool: (_name: string, context: { guiDesignCanvas?: boolean }) => ({
+        resolveTool: (_name: string, context: { guiDesignCanvas?: boolean; guiDesignArtifact?: { kind: 'svg'; artifactId: string; relativePath: string } }) => ({
           tool: {
             execute: async () => {
               executedContexts.push(context)
@@ -229,8 +234,14 @@ describe('createAgentSdkRuntime turn context', () => {
     const context = await deps.loadTurnContext('th', 'tn')
     await deps.executeKunTool('th', 'tn', 'design_create_screen', { name: 'Login' })
 
-    expect(listedContexts).toEqual([expect.objectContaining({ guiDesignCanvas: true })])
-    expect(executedContexts).toEqual([expect.objectContaining({ guiDesignCanvas: true })])
+    expect(listedContexts).toEqual([expect.objectContaining({
+      guiDesignCanvas: true,
+      guiDesignArtifact: { kind: 'svg', artifactId: 'motion', relativePath: '.kun-design/doc/motion/v1.svg' }
+    })])
+    expect(executedContexts).toEqual([expect.objectContaining({
+      guiDesignCanvas: true,
+      guiDesignArtifact: { kind: 'svg', artifactId: 'motion', relativePath: '.kun-design/doc/motion/v1.svg' }
+    })])
     expect(context?.bridgeableTools.map((tool) => tool.name)).toContain('design_create_screen')
     expect(context?.contextInstructions?.join('\n')).toContain('SINGLE SCREEN')
     expect(context?.contextInstructions?.join('\n')).toContain('COMPLETE MULTI-SCREEN EXPERIENCE')

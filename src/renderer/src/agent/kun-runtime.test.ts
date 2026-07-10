@@ -380,6 +380,39 @@ describe('KunRuntimeProvider', () => {
     )
   })
 
+  it('posts the reserved SVG artifact context for structured SVG turns', async () => {
+    const runtimeRequest = vi.fn(async () => ({
+      ok: true,
+      status: 202,
+      body: JSON.stringify({ threadId: 'thr_1', turnId: 'turn_svg', userMessageItemId: 'item_user_svg' })
+    }))
+    installDsGui({ runtimeRequest })
+    const provider = new KunRuntimeProvider()
+    await provider.sendUserMessage('thr_1', 'animate the mark', {
+      guiDesignMode: true,
+      guiDesignArtifact: {
+        kind: 'svg',
+        artifactId: 'motion',
+        relativePath: '.kun-design/doc/motion/v2.svg'
+      }
+    })
+    expect(runtimeRequest).toHaveBeenCalledWith(
+      '/v1/threads/thr_1/turns',
+      'POST',
+      JSON.stringify({
+        prompt: 'animate the mark',
+        approvalPolicy: 'auto',
+        sandboxMode: 'danger-full-access',
+        guiDesignMode: true,
+        guiDesignArtifact: {
+          kind: 'svg',
+          artifactId: 'motion',
+          relativePath: '.kun-design/doc/motion/v2.svg'
+        }
+      })
+    )
+  })
+
   it('posts rewind requests to the runtime', async () => {
     const runtimeRequest = vi.fn(async () => ({ ok: true, status: 200, body: '{}' }))
     installDsGui({ runtimeRequest })

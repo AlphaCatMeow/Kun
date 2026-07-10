@@ -9,6 +9,7 @@ export type DesignExportResourceKind =
   | 'design-system-json'
   | 'canvas'
   | 'html'
+  | 'svg'
   | 'screen-design-md'
   | 'graph-json'
 
@@ -31,7 +32,9 @@ export type DesignExportPackageOptions = {
 }
 
 function frameIdForArtifact(state: DesignToolState, artifactId: string): string | undefined {
-  return Object.values(state.graph.objects).find((object) => object.source?.htmlArtifactId === artifactId)?.id
+  return Object.values(state.graph.objects).find((object) =>
+    (object.source?.artifactId ?? object.source?.htmlArtifactId) === artifactId
+  )?.id
 }
 
 function artifactResources(state: DesignToolState): DesignExportResource[] {
@@ -48,7 +51,7 @@ function artifactResources(state: DesignToolState): DesignExportResource[] {
     }
     const frameId = frameIdForArtifact(state, artifact.id)
     resources.push({
-      kind: 'html',
+      kind: artifact.kind,
       path: artifact.relativePath,
       artifactId: artifact.id,
       ...(frameId ? { frameId } : {}),
@@ -75,6 +78,7 @@ function packageCounts(state: DesignToolState): Record<string, number> {
   return {
     objects: Object.keys(state.graph.objects).length,
     screens: state.artifacts.filter((artifact) => artifact.kind === 'html').length,
+    svgArtifacts: state.artifacts.filter((artifact) => artifact.kind === 'svg').length,
     canvasArtifacts: state.artifacts.filter((artifact) => artifact.kind === 'canvas').length,
     directions: Object.keys(state.graph.directions).length,
     tokens: state.graph.designSystem?.tokenCount ?? 0,

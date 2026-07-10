@@ -187,6 +187,31 @@ describe('contracts', () => {
     expect(result.success).toBe(false)
   })
 
+  it('accepts only reserved versioned SVG artifact paths on Design turns', () => {
+    const parsed = StartTurnRequest.parse({
+      prompt: 'Animate the logo',
+      guiDesignMode: true,
+      guiDesignArtifact: {
+        kind: 'svg',
+        artifactId: 'motion',
+        relativePath: '.kun-design/doc/motion/v2.svg'
+      }
+    })
+    expect(parsed.guiDesignArtifact).toEqual({
+      kind: 'svg',
+      artifactId: 'motion',
+      relativePath: '.kun-design/doc/motion/v2.svg'
+    })
+    expect(StartTurnRequest.safeParse({
+      prompt: 'Unsafe SVG',
+      guiDesignArtifact: {
+        kind: 'svg',
+        artifactId: 'motion',
+        relativePath: '../motion.svg'
+      }
+    }).success).toBe(false)
+  })
+
   it('produces a deterministic empty usage snapshot', () => {
     const usage = emptyUsageSnapshot()
     expect(usage.cacheHitRate).toBeNull()

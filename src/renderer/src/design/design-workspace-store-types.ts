@@ -111,7 +111,7 @@ export type DesignWorkspaceState = {
   renameArtifact: (artifactId: string, title: string) => void
   /** Overwrite a version's summary with the agent's actual end-of-turn description. */
   setVersionSummary: (artifactId: string, versionId: string, summary: string) => void
-  /** Update renderer preview lifecycle for an HTML artifact. */
+  /** Update renderer preview lifecycle for an HTML or SVG artifact. */
   setArtifactPreviewStatus: (
     artifactId: string,
     status: NonNullable<DesignArtifact['previewStatus']>
@@ -142,6 +142,19 @@ export type DesignWorkspaceState = {
   prepareHtmlTurn: (
     brief: string,
     options?: { forceNew?: boolean; artifactId?: string; activate?: boolean; reusePendingInitial?: boolean }
+  ) => { artifactId: string; relativePath: string; basePath?: string; designMdPath: string }
+  /** Ensure a first-class SVG artifact exists and advance it to a new turn version. */
+  prepareSvgTurn: (
+    brief: string,
+    options?: {
+      forceNew?: boolean
+      artifactId?: string
+      activate?: boolean
+      reusePendingInitial?: boolean
+      width?: number
+      height?: number
+      title?: string
+    }
   ) => { artifactId: string; relativePath: string; basePath?: string; designMdPath: string }
   setAiRailCollapsed: (collapsed: boolean) => void
   setCanvasAssistantOpen: (open: boolean) => void
