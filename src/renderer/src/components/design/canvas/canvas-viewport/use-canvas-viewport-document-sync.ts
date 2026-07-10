@@ -44,6 +44,40 @@ type UseCanvasViewportDocumentSyncArgs = {
   designSystemPersistenceEnabled?: boolean
 }
 
+export const CANVAS_DOCUMENT_LOAD_TIMEOUT_MS = 4_000
+
+export type CanvasDocumentLoadOutcome =
+  | { status: 'resolved'; document: CanvasDocument | null }
+  | { status: 'rejected'; document: null }
+  | { status: 'timeout'; document: null }
+
+/**
+ * Workspace reads normally resolve immediately, but an interrupted IPC request
+ * must not leave a historical board in its loading state forever.
+ */
+export function loadCanvasDocumentWithinDeadline(
+  load: () => Promise<CanvasDocument | null>,
+  timeoutMs = CANVAS_DOCUMENT_LOAD_TIMEOUT_MS
+): Promise<CanvasDocumentLoadOutcome> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (outcome: CanvasDocumentLoadOutcome): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(outcome)
+    }
+    const timer = setTimeout(
+      () => finish({ status: 'timeout', document: null }),
+      Math.max(0, timeoutMs)
+    )
+    Promise.resolve()
+      .then(load)
+      .then((document) => finish({ status: 'resolved', document }))
+      .catch(() => finish({ status: 'rejected', document: null }))
+  })
+}
+
 function focusBoundsToFitLater(bounds: Rect | null, cancelled: () => boolean): number {
   if (!bounds) return 0
   return requestAnimationFrame(() => {
@@ -89,6 +123,7 @@ export function useCanvasViewportDocumentSync({
     }
 
     let cancelled = false
+    let applyingDocumentLoad = false
     let viewFrame = 0
     let nodeSyncTimer: ReturnType<typeof setTimeout> | null = null
     const isCancelled = (): boolean => cancelled
@@ -105,37 +140,65 @@ export function useCanvasViewportDocumentSync({
     useCanvasViewportStore.getState().resetView()
     useCanvasUndoStore.getState().clear()
 
-    void loadCanvasDocument(workspaceRoot, artifactId, baseDir).then((loaded) => {
-      if (cancelled) return
-      const currentShapeState = useCanvasShapeStore.getState()
-      const liveDocument = currentShapeState.documentKey === documentKey
-        ? currentShapeState.document
-        : initialDocument
-      let doc = mergeLoadedCanvasDocumentWithLiveChanges(
-        loaded ?? createEmptyDocument(),
-        liveDocument,
-        initialDocument
-      )
-      let addedFrameIds: string[] = []
-      if (htmlFrameSyncEnabled) {
-        const synced = syncDesignArtifactsToBoardDocument(doc, useDesignWorkspaceStore.getState().artifacts)
-        doc = synced.document
-        addedFrameIds = synced.addedFrameIds
-        if (synced.addedFrameIds.length > 0 || synced.updatedFrameIds.length > 0 || synced.removedFrameIds.length > 0) {
-          persistCanvasDocument(workspaceRoot, artifactId, doc, baseDir)
+    void (async () => {
+      try {
+        const outcome = await loadCanvasDocumentWithinDeadline(
+          () => loadCanvasDocument(workspaceRoot, artifactId, baseDir)
+        )
+        if (cancelled) return
+        const loaded = outcome.document
+        const currentShapeState = useCanvasShapeStore.getState()
+        const liveDocument = currentShapeState.documentKey === documentKey
+          ? currentShapeState.document
+          : initialDocument
+        let doc = mergeLoadedCanvasDocumentWithLiveChanges(
+          loaded ?? createEmptyDocument(),
+          liveDocument,
+          initialDocument
+        )
+        let addedFrameIds: string[] = []
+        if (htmlFrameSyncEnabled) {
+          const synced = syncDesignArtifactsToBoardDocument(doc, useDesignWorkspaceStore.getState().artifacts)
+          doc = synced.document
+          addedFrameIds = synced.addedFrameIds
+          if (
+            outcome.status === 'resolved' &&
+            (synced.addedFrameIds.length > 0 || synced.updatedFrameIds.length > 0 || synced.removedFrameIds.length > 0)
+          ) {
+            persistCanvasDocument(workspaceRoot, artifactId, doc, baseDir)
+          }
         }
+        applyingDocumentLoad = true
+        useCanvasShapeStore.getState().loadDocument(doc, documentKey)
+        applyingDocumentLoad = false
+        const storedView = readStoredCanvasViewport(viewportStorageKey)
+        if (storedView) {
+          useCanvasViewportStore.getState().setVbox(storedView)
+        } else if (addedFrameIds.length > 0) {
+          viewFrame = focusBoundsToFitLater(boundsForShapeIds(doc, addedFrameIds), isCancelled)
+        } else if (loaded) {
+          viewFrame = focusBoundsToFitLater(getCanvasDocumentContentBounds(doc), isCancelled)
+        }
+        if (outcome.status !== 'resolved') {
+          useDesignWorkspaceStore.getState().setFileError(
+            outcome.status === 'timeout'
+              ? 'Design board loading timed out; reconstructed the board from its artifacts.'
+              : 'Design board could not be loaded; reconstructed the board from its artifacts.'
+          )
+        }
+      } catch (error) {
+        if (cancelled) return
+        applyingDocumentLoad = true
+        useCanvasShapeStore.getState().loadDocument(initialDocument, documentKey)
+        applyingDocumentLoad = false
+        useDesignWorkspaceStore.getState().setFileError(
+          error instanceof Error ? error.message : String(error)
+        )
+      } finally {
+        applyingDocumentLoad = false
+        if (!cancelled) setDocLoaded(true)
       }
-      useCanvasShapeStore.getState().loadDocument(doc, documentKey)
-      const storedView = readStoredCanvasViewport(viewportStorageKey)
-      if (storedView) {
-        useCanvasViewportStore.getState().setVbox(storedView)
-      } else if (addedFrameIds.length > 0) {
-        viewFrame = focusBoundsToFitLater(boundsForShapeIds(doc, addedFrameIds), isCancelled)
-      } else if (loaded) {
-        viewFrame = focusBoundsToFitLater(getCanvasDocumentContentBounds(doc), isCancelled)
-      }
-      setDocLoaded(true)
-    })
+    })()
 
     if (designSystemPersistenceEnabled) {
       void loadDesignSystem(workspaceRoot, resolvedDesignSystemBaseDir).then((system) => {
@@ -145,7 +208,7 @@ export function useCanvasViewportDocumentSync({
     }
 
     const unsubscribe = useCanvasShapeStore.subscribe((state, prev) => {
-      if (cancelled) return
+      if (cancelled || applyingDocumentLoad) return
       if (state.document === prev.document) return
       persistCanvasDocument(workspaceRoot, artifactId, state.document, baseDir)
       if (!htmlFrameSyncEnabled) return

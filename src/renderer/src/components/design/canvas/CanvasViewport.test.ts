@@ -9,6 +9,7 @@ import {
   mergeLoadedCanvasDocumentWithLiveChanges,
   resolveCanvasSelectionAfterDocumentSync,
   resolveHtmlFrameOverlayInteractionState,
+  shouldShowCanvasDocumentLoading,
   shouldResetCanvasTransientInteractionAfterDocumentSync,
   shouldSyncCanvasHtmlFrames,
   shouldToggleHtmlFrameInteractiveOnDoubleClick
@@ -16,6 +17,10 @@ import {
 import { createDefaultShape, createEmptyDocument, createHtmlFrameShape } from '../../../design/canvas/canvas-types'
 
 describe('CanvasViewport surface behavior', () => {
+  it('renders the initialized empty canvas while a historical document is still loading', () => {
+    expect(shouldShowCanvasDocumentLoading(createEmptyDocument())).toBe(false)
+  })
+
   it('keeps design artifact overlays out of the code canvas', () => {
     expect(shouldRenderDesignArtifactOverlays('code')).toBe(false)
     expect(shouldRenderDesignArtifactOverlays('design')).toBe(true)

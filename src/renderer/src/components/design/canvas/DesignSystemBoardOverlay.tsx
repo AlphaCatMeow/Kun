@@ -5,7 +5,6 @@ import { useDesignSystemStore } from '../../../design/canvas/design-system-store
 import type { ComponentDef, DesignToken } from '../../../design/canvas/design-system-types'
 import { PROJECT_DESIGN_SYSTEM_PATH } from '../../../design/canvas/project-design-system'
 import { useProjectDesignSystemStore } from '../../../design/canvas/project-design-system-store'
-import { createProjectDesignSystemFile } from '../../../design/canvas/use-project-design-system-sync'
 
 type Props = {
   workspaceRoot: string
@@ -15,6 +14,12 @@ type Props = {
 
 const BOARD_WIDTH = 1520
 const SECTION_BG = '#ffffff'
+
+export function shouldRenderDesignSystemBoard(
+  status: 'loading' | 'missing' | 'ready' | 'invalid'
+): boolean {
+  return status === 'ready' || status === 'invalid'
+}
 
 function solidColor(fills: Fill[] | undefined, fallback = '#e2e8f0'): string {
   const fill = fills?.find((item) => item.type === 'solid')
@@ -221,52 +226,45 @@ export function DesignSystemBoardOverlay({ workspaceRoot, document, viewBox }: P
   if (!placementRef.current || placementRef.current.workspaceRoot !== workspaceRoot) {
     placementRef.current = { workspaceRoot, rect: boardPlacement(document, viewBox) }
   }
-  if (status === 'loading') return null
+  // The design-system board is a projection of an actual workspace file. A
+  // missing file is not a canvas object and must not create an empty-state
+  // card on every design board.
+  if (!shouldRenderDesignSystemBoard(status)) return null
   const rect = placementRef.current.rect
   const components = Object.values(system.components).sort((a, b) => a.name.localeCompare(b.name))
   const tokens = Object.values(system.tokens).sort((a, b) => a.name.localeCompare(b.name))
   const height = Math.max(420, 360 + Math.ceil(tokens.length / 4) * 160 + Math.ceil(components.length / 2) * 500)
 
   return (
-    <foreignObject x={rect.x} y={rect.y} width={rect.width} height={status === 'missing' ? 340 : height}>
+    <foreignObject x={rect.x} y={rect.y} width={rect.width} height={height}>
       <div
         className="h-full w-full overflow-hidden rounded-[32px] border-2 border-slate-200 bg-slate-100 p-8 font-sans text-slate-900 shadow-2xl"
         onPointerDown={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
       >
-        {status === 'missing' ? (
-          <div className="flex h-full flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-300 bg-white text-center">
-            <div className="text-xl font-semibold">No project design system</div>
-            <div className="mt-2 font-mono text-sm text-slate-500">{PROJECT_DESIGN_SYSTEM_PATH}</div>
-            <button type="button" className="mt-6 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white" onClick={() => void createProjectDesignSystemFile(workspaceRoot)}>Create design system</button>
+        <div className="mb-7 flex items-start justify-between gap-6">
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">Project Design System · Schema v1</div>
+            <input
+              value={project?.meta.name ?? 'Project design system'}
+              className="w-full border-0 bg-transparent p-0 text-4xl font-bold tracking-tight outline-none"
+              onChange={(event) => updateMeta({ name: event.target.value })}
+            />
+            <div className="mt-2 font-mono text-xs text-slate-400">{PROJECT_DESIGN_SYSTEM_PATH}</div>
           </div>
-        ) : (
-          <>
-            <div className="mb-7 flex items-start justify-between gap-6">
-              <div className="min-w-0 flex-1">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">Project Design System · Schema v1</div>
-                <input
-                  value={project?.meta.name ?? 'Project design system'}
-                  className="w-full border-0 bg-transparent p-0 text-4xl font-bold tracking-tight outline-none"
-                  onChange={(event) => updateMeta({ name: event.target.value })}
-                />
-                <div className="mt-2 font-mono text-xs text-slate-400">{PROJECT_DESIGN_SYSTEM_PATH}</div>
-              </div>
-              <div className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white">{tokens.length} tokens · {components.length} components</div>
-            </div>
-            {status === 'invalid' ? (
-              <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Invalid file; showing the last valid design system. {errors.join(' ')}</div>
-            ) : null}
-            <section className="mb-8 rounded-3xl p-5" style={{ background: SECTION_BG }}>
-              <h2 className="mb-4 text-lg font-semibold">Tokens</h2>
-              {tokens.length ? <div className="grid grid-cols-4 gap-3">{tokens.map((token) => <ProjectTokenEditor key={token.name} token={token} />)}</div> : <div className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">No tokens yet. Add them from the Design agent or edit the JSON file.</div>}
-            </section>
-            <section>
-              <h2 className="mb-4 text-lg font-semibold">Components</h2>
-              {components.length ? <div className="grid grid-cols-2 gap-5">{components.map((component) => <ComponentEditor key={component.id} component={component} />)}</div> : <div className="rounded-2xl bg-white p-6 text-sm text-slate-500">No component trees yet.</div>}
-            </section>
-          </>
-        )}
+          <div className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white">{tokens.length} tokens · {components.length} components</div>
+        </div>
+        {status === 'invalid' ? (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Invalid file; showing the last valid design system. {errors.join(' ')}</div>
+        ) : null}
+        <section className="mb-8 rounded-3xl p-5" style={{ background: SECTION_BG }}>
+          <h2 className="mb-4 text-lg font-semibold">Tokens</h2>
+          {tokens.length ? <div className="grid grid-cols-4 gap-3">{tokens.map((token) => <ProjectTokenEditor key={token.name} token={token} />)}</div> : <div className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">No tokens yet. Add them from the Design agent or edit the JSON file.</div>}
+        </section>
+        <section>
+          <h2 className="mb-4 text-lg font-semibold">Components</h2>
+          {components.length ? <div className="grid grid-cols-2 gap-5">{components.map((component) => <ComponentEditor key={component.id} component={component} />)}</div> : <div className="rounded-2xl bg-white p-6 text-sm text-slate-500">No component trees yet.</div>}
+        </section>
       </div>
     </foreignObject>
   )

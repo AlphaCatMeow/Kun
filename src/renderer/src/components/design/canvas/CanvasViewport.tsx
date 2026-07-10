@@ -54,6 +54,7 @@ import { useCanvasViewportDocumentSync } from './canvas-viewport/use-canvas-view
 import { useProjectDesignSystemSync } from '../../../design/canvas/use-project-design-system-sync'
 import { DesignSystemBoardOverlay } from './DesignSystemBoardOverlay'
 import { SvgFrameOverlay } from './SvgFrameOverlay'
+import type { CanvasDocument } from '../../../design/canvas/canvas-types'
 
 export {
   resolveCanvasDesignSystemBaseDir,
@@ -87,6 +88,10 @@ type Props = {
   onUseElementAsContext?: (context: DesignHtmlElementContext | null, promptSeed?: string) => void
   onRuntimeQualityFindings?: (payload: DesignRuntimeQualityPayload) => void
   onRequestQualityRepair?: (payload: DesignRuntimeQualityPayload) => void
+}
+
+export function shouldShowCanvasDocumentLoading(document: CanvasDocument): boolean {
+  return !document.objects[document.rootId]
 }
 
 export function CanvasViewport({
@@ -197,7 +202,7 @@ export function CanvasViewport({
     () => canvasDocumentKey(workspaceRoot, artifactId, baseDir),
     [artifactId, baseDir, workspaceRoot]
   )
-  const docLoaded = useCanvasViewportDocumentSync({
+  useCanvasViewportDocumentSync({
     workspaceRoot,
     artifactId,
     baseDir,
@@ -411,8 +416,7 @@ export function CanvasViewport({
 
   const viewBoxStr = `${vbox.x} ${vbox.y} ${vbox.width} ${vbox.height}`
   const cursor = activeTool === 'hand' ? 'grab' : tool.cursor
-
-  const root = document?.objects?.[document?.rootId]
+  const root = document.objects[document.rootId]
 
   return (
     <CanvasWorkspaceContext.Provider value={workspaceValue}>
@@ -473,7 +477,7 @@ export function CanvasViewport({
           className="absolute inset-0 overflow-hidden bg-[#f8fafc] dark:bg-[#111318]"
         >
           <AlignmentToolbar />
-          {!docLoaded || !root ? (
+          {shouldShowCanvasDocumentLoading(document) ? (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-ds-faint">
               {t('designCanvasLoading')}
             </div>
@@ -498,7 +502,7 @@ export function CanvasViewport({
               ) : null}
 
               <g id="shape-layer">
-                {root.children.map((childId) => {
+                {root?.children.map((childId) => {
                   const child = document.objects[childId]
                   if (!child || !child.visible) return null
                   return (
