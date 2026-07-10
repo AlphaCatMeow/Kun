@@ -6,6 +6,7 @@ import type { InstructionsCapabilityConfig } from '../contracts/capabilities.js'
 export const KUN_AGENTS_FILENAME = 'AGENTS.md'
 export const DEFAULT_INSTRUCTION_MAX_FILE_BYTES = 64 * 1024
 export const DEFAULT_INSTRUCTION_MAX_TOTAL_BYTES = 96 * 1024
+const MAX_CACHED_INSTRUCTION_FILES = 256
 
 type InstructionSourceScope = 'global' | 'workspace'
 
@@ -140,7 +141,11 @@ export class InstructionRuntime {
     }
     const statKey = `${fileStat.size}:${fileStat.mtimeMs}`
     const cached = this.cache.get(path)
-    if (cached?.statKey === statKey) return cached
+    if (cached?.statKey === statKey) {
+      this.cache.delete(path)
+      this.cache.set(path, cached)
+      return cached
+    }
 
     try {
       const raw = await readFile(path, 'utf8')
@@ -158,7 +163,12 @@ export class InstructionRuntime {
         bytes: Buffer.byteLength(text, 'utf8'),
         truncated
       }
+      this.cache.delete(path)
       this.cache.set(path, loaded)
+      if (this.cache.size > MAX_CACHED_INSTRUCTION_FILES) {
+        const oldest = this.cache.keys().next().value
+        if (oldest !== undefined) this.cache.delete(oldest)
+      }
       return loaded
     } catch (error) {
       readErrors.push({ path, message: errorMessage(error) })

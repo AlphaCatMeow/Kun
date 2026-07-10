@@ -98,6 +98,8 @@ export type SkillRuntimeOptions = {
   catalogBudgetBytes?: number
 }
 
+const MAX_WORKSPACE_SKILL_CACHES = 128
+
 export class SkillRuntime {
   private skills: LoadedSkill[]
   private validationErrors: Array<{ root: string; message: string }>
@@ -345,12 +347,19 @@ export class SkillRuntime {
     const rootsKey = roots.join('\0')
     const cached = this.workspaceSkillCache.get(workspaceRoot)
     if (cached?.rootsKey === rootsKey) {
+      this.workspaceSkillCache.delete(workspaceRoot)
+      this.workspaceSkillCache.set(workspaceRoot, cached)
       return { skills: cached.skills, validationErrors: cached.validationErrors }
     }
     const loaded = roots.length > 0
       ? await discoverSkills({ ...this.config, roots })
       : { skills: [], validationErrors: [] }
+    this.workspaceSkillCache.delete(workspaceRoot)
     this.workspaceSkillCache.set(workspaceRoot, { rootsKey, ...loaded })
+    if (this.workspaceSkillCache.size > MAX_WORKSPACE_SKILL_CACHES) {
+      const oldest = this.workspaceSkillCache.keys().next().value
+      if (oldest !== undefined) this.workspaceSkillCache.delete(oldest)
+    }
     return loaded
   }
 }
