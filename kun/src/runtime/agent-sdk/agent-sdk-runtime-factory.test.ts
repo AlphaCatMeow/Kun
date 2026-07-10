@@ -148,6 +148,49 @@ describe('createAgentSdkRuntime handlesProvider', () => {
 })
 
 describe('createAgentSdkRuntime turn context', () => {
+  test('does not duplicate an HTTP-recorded user input resolution event', async () => {
+    const events: Array<{ kind: string; inputId?: string }> = []
+    const runtime = createAgentSdkRuntime({
+      registry: {
+        resolveTool: () => ({
+          tool: {
+            execute: async (_args: unknown, context: { awaitUserInput?: (input: {
+              id: string; itemId: string; prompt: string; questions: []
+            }) => Promise<unknown> }) => {
+              await context.awaitUserInput?.({ id: 'in_sdk', itemId: 'item_sdk', prompt: 'Pick', questions: [] })
+              return { output: {} }
+            }
+          }
+        })
+      } as never,
+      turns: { applyItem: async () => undefined, updateItem: async () => undefined } as never,
+      sessionStore: {
+        loadEventsSince: async () => [{ kind: 'user_input_resolved', inputId: 'in_sdk' }]
+      } as never,
+      threadStore: { get: async () => threadWith({ workspace: '/ws' }) } as never,
+      events: { record: async (event: { kind: string; inputId?: string }) => { events.push(event) } } as never,
+      ids: { next: (prefix) => prefix },
+      prefix: { systemPrompt: '' },
+      providerConfigs: {},
+      agentSdkProviderIds: new Set(),
+      defaultApprovalPolicy: 'auto',
+      userInputGate: {
+        request: async () => ({ status: 'submitted', answers: [] }),
+        resolve: () => true,
+        get: () => undefined,
+        pending: () => []
+      } as never
+    })
+    const deps = (runtime as unknown as {
+      deps: { executeKunTool(threadId: string, turnId: string, toolName: string, args: Record<string, unknown>): Promise<unknown> }
+    }).deps
+
+    await deps.executeKunTool('th', 'tn', 'user_input', {})
+
+    expect(events.filter((event) => event.kind === 'user_input_requested')).toHaveLength(1)
+    expect(events.filter((event) => event.kind === 'user_input_resolved')).toHaveLength(0)
+  })
+
   test('injects native AGENTS.md instructions and records turn metadata', async () => {
     const root = await mkdtemp(join(tmpdir(), 'kun-sdk-instructions-'))
     try {
