@@ -90,18 +90,18 @@ function estimateDocuments(documents?: ModelDocumentAttachment[]): number {
 }
 
 /**
- * Providers meter vision input differently, but the actual base64 payload is
- * still request context. A text-equivalent estimate is intentionally
- * conservative: the loop must reject an unsafe request rather than discover a
- * context overflow after sending private attachments upstream.
+ * Providers meter vision input differently from the base64 transport encoding.
+ * Estimate from pixels when known (with a conservative fallback) so normal
+ * image inputs are included in the hard cap without treating their 4/3 wire
+ * encoding as text tokens.
  */
 function estimateImageAttachments(attachments?: ModelInputAttachment[]): number {
   if (!attachments?.length) return 0
-  return attachments.reduce((sum, attachment) => sum + estimateText([
-    attachment.name,
-    attachment.mimeType,
-    attachment.dataBase64
-  ].join('\n')), 0)
+  return attachments.reduce((sum, attachment) => {
+    const pixels = (attachment.width ?? 0) * (attachment.height ?? 0)
+    const imageTokens = pixels > 0 ? Math.max(256, Math.ceil(pixels / 768)) : 2_048
+    return sum + imageTokens + estimateText(`${attachment.name}\n${attachment.mimeType}`)
+  }, 0)
 }
 
 function estimateText(text?: string): number {

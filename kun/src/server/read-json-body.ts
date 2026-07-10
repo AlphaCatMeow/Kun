@@ -5,7 +5,8 @@ export type ReadJsonBodyResult =
   | { ok: true; value: unknown }
   | { ok: false; response: JsonResponse }
 
-const DEFAULT_MAX_JSON_BODY_BYTES = 32 * 1024 * 1024
+/** Default for control-plane JSON routes; binary/base64 uploads opt in explicitly. */
+export const DEFAULT_MAX_JSON_BODY_BYTES = 1 * 1024 * 1024
 
 export async function readJsonBody(request: Request, maxBytes = DEFAULT_MAX_JSON_BODY_BYTES): Promise<ReadJsonBodyResult> {
   if (request.body === null) return { ok: true, value: {} }

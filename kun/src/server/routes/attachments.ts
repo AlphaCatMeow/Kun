@@ -4,12 +4,14 @@ import { jsonResponse, type JsonResponse } from '../response.js'
 import { readJsonBody } from '../read-json-body.js'
 import { ERRORS } from './runtime-error.js'
 
+const MAX_ATTACHMENT_UPLOAD_BODY_BYTES = 32 * 1024 * 1024
+
 export async function uploadAttachment(
   store: AttachmentStore | undefined,
   request: Request
 ): Promise<JsonResponse | Response> {
   if (!store) return ERRORS.unavailable('attachment store is unavailable')
-  const body = await readJsonBody(request)
+  const body = await readJsonBody(request, MAX_ATTACHMENT_UPLOAD_BODY_BYTES)
   if (!body.ok) return body.response
   const parsed = AttachmentUploadRequest.safeParse(body.value)
   if (!parsed.success) return ERRORS.attachmentValidation('invalid attachment upload body', parsed.error.issues)

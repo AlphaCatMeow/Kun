@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { readJsonBody } from '../src/server/read-json-body.js'
+import { DEFAULT_MAX_JSON_BODY_BYTES, readJsonBody } from '../src/server/read-json-body.js'
 
 describe('readJsonBody', () => {
+  it('uses a small default limit for control-plane JSON', () => {
+    expect(DEFAULT_MAX_JSON_BODY_BYTES).toBe(1 * 1024 * 1024)
+  })
+
   it('returns an empty object for requests without a body', async () => {
     await expect(readJsonBody(new Request('http://localhost/v1/demo'))).resolves.toEqual({
       ok: true,

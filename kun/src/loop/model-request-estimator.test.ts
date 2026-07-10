@@ -17,6 +17,6 @@ describe('estimateModelRequestInputTokens', () => {
       abortSignal: new AbortController().signal
     }
 
-    expect(estimateModelRequestInputTokens(request)).toBeGreaterThanOrEqual(200)
+    expect(estimateModelRequestInputTokens(request)).toBeGreaterThanOrEqual(2_100)
   })
 })

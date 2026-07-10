@@ -1268,8 +1268,14 @@ export class AgentLoop {
       })
     }
     const inputTokens = estimateModelRequestInputTokens(request)
-    const outputTokens = this.opts.modelCapabilities?.(model).maxOutputTokens ?? 4_096
-    const hardCap = this.opts.compactor.hardCap(model)
+    const outputTokens = modelCapabilities.maxOutputTokens ?? 0
+    // A configured model context window is authoritative. ContextCompactor's
+    // test/embedding thresholds can intentionally be much smaller than a real
+    // model window to exercise compaction, so use its cap only when capability
+    // metadata is unavailable.
+    const hardCap = modelCapabilities.contextWindowTokens
+      ? Math.floor(modelCapabilities.contextWindowTokens * 0.85)
+      : this.opts.compactor.hardCap(model)
     if (inputTokens + outputTokens > hardCap) {
       await this.opts.events.record({
         kind: 'error',
