@@ -31,6 +31,7 @@ import {
   normalizeModelEndpointFormat
 } from '../contracts/model-endpoint-format.js'
 import { HooksConfigSchema } from '../hooks/hook-config.js'
+import { isLoopbackHost } from '../server/loopback-host.js'
 
 export const DEFAULT_SERVE_PORT = 18899
 export const DEFAULT_SERVE_MODEL = DEFAULT_KUN_MODEL
@@ -72,6 +73,14 @@ export const ServeOptionsSchema = z.object({
   capabilities: KunCapabilitiesConfig.default(DEFAULT_KUN_CAPABILITIES_CONFIG),
   hooks: HooksConfigSchema.optional(),
   quality: QualityConfigSchema.optional()
+}).superRefine((value, ctx) => {
+  if (value.insecure && !isLoopbackHost(value.host)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['insecure'],
+      message: '--insecure is allowed only with a loopback host'
+    })
+  }
 })
 export type ServeOptions = z.infer<typeof ServeOptionsSchema>
 

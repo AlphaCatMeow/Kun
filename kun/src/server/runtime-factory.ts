@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { buildRouter } from './routes/index.js'
 import type { ServerRuntime } from './routes/server-runtime.js'
 import { startNodeHttpServer, type NodeHttpServerHandle } from './node-http-server.js'
+import { isLoopbackHost } from './loopback-host.js'
 import { FileAttachmentStore } from '../attachments/attachment-store.js'
 import { InMemoryApprovalGate } from '../adapters/in-memory-approval-gate.js'
 import { InMemoryUserInputGate } from '../adapters/in-memory-user-input-gate.js'
@@ -1180,6 +1181,9 @@ export async function seedUsageCarryover(input: {
 export async function startKunServe(
   options: KunServeRuntimeOptions
 ): Promise<KunServeHandle> {
+  if (options.insecure && !isLoopbackHost(options.host)) {
+    throw new Error('insecure serve requires a loopback host')
+  }
   const runtime = await createKunServeRuntime(options)
   const router = buildRouter(runtime)
   const server = await startNodeHttpServer({

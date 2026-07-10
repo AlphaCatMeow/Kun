@@ -325,6 +325,14 @@ describe('cli', () => {
     expect(parsed.insecure).toBe(true)
   })
 
+  it('rejects insecure serve on a non-loopback host', () => {
+    expect(() => parseServeOptions([
+      '--data-dir', '/tmp/kun',
+      '--host', '0.0.0.0',
+      '--insecure'
+    ])).toThrow(/loopback host/)
+  })
+
   it('parses flags in --key=value form', () => {
     const parsed = parseServeOptions([
       '--host=0.0.0.0',
