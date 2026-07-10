@@ -2064,7 +2064,7 @@ function exactModelEndpointUrl(baseUrl: string): string {
   return `${trimmed.slice(0, query).replace(/\/+$/, '')}${trimmed.slice(query)}`
 }
 
-function redactUrlForLog(url: string): string {
+export function redactUrlForLog(url: string): string {
   const trimmed = url.trim()
   if (!trimmed) return ''
   try {
@@ -2074,9 +2074,13 @@ function redactUrlForLog(url: string): string {
         parsed.searchParams.set(key, '[redacted]')
       }
     }
+    parsed.username = ''
+    parsed.password = ''
     return parsed.toString()
   } catch {
-    return trimmed.replace(/([?&][^=&]*(?:key|token|secret|signature|auth|password)[^=]*=)[^&#]*/gi, '$1[redacted]')
+    return trimmed
+      .replace(/^[^:/]+:\/\/[^/@]*@/, (match) => match.replace(/\/\/.*@$/, '//'))
+      .replace(/([?&][^=&]*(?:key|token|secret|signature|auth|password)[^=]*=)[^&#]*/gi, '$1[redacted]')
   }
 }
 
