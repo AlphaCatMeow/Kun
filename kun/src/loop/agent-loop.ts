@@ -3098,7 +3098,10 @@ function sanitizeProviderBaseUrl(baseUrl: string): string {
     url.hash = ''
     return url.toString().replace(/\/$/, '')
   } catch {
-    return baseUrl.replace(/[?#].*$/, '').replace(/\/+$/, '')
+    return baseUrl
+      .replace(/(^|\/\/)[^/?#@\s]*@/, '$1')
+      .replace(/[?#].*$/, '')
+      .replace(/\/+$/, '')
   }
 }
 

@@ -283,6 +283,26 @@ describe('AgentLoop', () => {
     })
   })
 
+  it('redacts credentials from malformed provider URLs in pipeline diagnostics', async () => {
+    const h = makeHarness({
+      provider: 'compat',
+      model: 'test-model',
+      config: { baseUrl: 'https://user:secret@%', endpointFormat: 'messages', model: 'test-model' },
+      async *stream(): AsyncIterable<ModelStreamChunk> {
+        yield { kind: 'completed', stopReason: 'stop' }
+      }
+    })
+    await bootstrapThread(h)
+
+    await h.loop.runTurn(h.threadId, h.turnId)
+
+    const events = await h.sessionStore.loadEventsSince(h.threadId, 0)
+    const preSend = events.find((event) => event.kind === 'pipeline_stage' && event.stage === 'pre_send')
+    const diagnostics = JSON.stringify(preSend)
+    expect(diagnostics).not.toContain('user:secret')
+    expect(diagnostics).not.toContain('secret')
+  })
+
   it('aborts the turn when the abort signal fires', async () => {
     const h = makeHarness({
       provider: 'blocker',
