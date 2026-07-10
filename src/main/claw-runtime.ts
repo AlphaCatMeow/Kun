@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { URL } from 'node:url'
 import {
   createLarkChannel,
@@ -85,8 +84,8 @@ import {
   findClawConversation,
   setClawConversationModelSelection
 } from './claw-conversation-registry'
+import { authorizeImGeneratedFiles, deliverImGeneratedFiles } from './im-attachment-pipeline'
 
-const MAX_IM_FILE_UPLOAD_BYTES = 50 * 1024 * 1024
 const CLAW_TELEGRAM_INBOUND_IMAGE_HEADING = '[Telegram inbound message]'
 
 type FeishuClawChannel = ClawImChannelV1 & {
@@ -2194,61 +2193,12 @@ export class ClawRuntime {
     workspaceRoot: string,
     context: Record<string, unknown>
   ): Promise<ClawGeneratedFileV1[]> {
-    const root = workspaceRoot.trim()
-    if (!root || files.length === 0) return []
-    let realRoot = ''
-    try {
-      realRoot = await realpath(resolve(root))
-    } catch (error) {
-      this.deps.logError('claw-im', 'Failed to resolve IM file workspace root', {
-        ...context,
-        workspaceRoot: root,
-        message: errorMessage(error)
-      })
-      return []
-    }
-
-    const resolvedFiles: ClawGeneratedFileV1[] = []
-    const seen = new Set<string>()
-    for (const file of files) {
-      try {
-        const realFile = await realpath(resolve(file.path))
-        const relativePath = relative(realRoot, realFile)
-        if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-          this.deps.logError('claw-im', 'Skipping generated file outside the IM workspace', {
-            ...context,
-            filePath: file.path,
-            workspaceRoot: root
-          })
-          continue
-        }
-        if (seen.has(realFile)) continue
-        const fileStat = await stat(realFile)
-        if (!fileStat.isFile()) continue
-        if (fileStat.size > MAX_IM_FILE_UPLOAD_BYTES) {
-          this.deps.logError('claw-im', 'Skipping generated file because it is too large for IM upload', {
-            ...context,
-            filePath: realFile,
-            bytes: fileStat.size,
-            maxBytes: MAX_IM_FILE_UPLOAD_BYTES
-          })
-          continue
-        }
-        seen.add(realFile)
-        resolvedFiles.push({
-          ...file,
-          path: realFile,
-          fileName: file.fileName || realFile.split(/[\\/]/).pop() || 'attachment'
-        })
-      } catch (error) {
-        this.deps.logError('claw-im', 'Skipping generated file that cannot be read for IM upload', {
-          ...context,
-          filePath: file.path,
-          message: errorMessage(error)
-        })
-      }
-    }
-    return resolvedFiles
+    return authorizeImGeneratedFiles({
+      files,
+      workspaceRoot,
+      context,
+      logError: this.deps.logError
+    })
   }
 
   private async sendFeishuGeneratedFiles(
@@ -2258,10 +2208,9 @@ export class ClawRuntime {
     options: SendOptions,
     context: Record<string, unknown>
   ): Promise<{ sent: ClawGeneratedFileV1[]; failed: Array<{ file: ClawGeneratedFileV1; message: string }> }> {
-    const sent: ClawGeneratedFileV1[] = []
-    const failed: Array<{ file: ClawGeneratedFileV1; message: string }> = []
-    for (const file of files) {
-      try {
+    return deliverImGeneratedFiles({
+      files,
+      upload: async (file) => {
         await this.sendFeishuMessage(
           bridge,
           to,
@@ -2274,10 +2223,8 @@ export class ClawRuntime {
             fileName: file.fileName
           }
         )
-        sent.push(file)
-      } catch (error) {
-        const message = errorMessage(error)
-        failed.push({ file, message })
+      },
+      onFailure: (file, message) => {
         this.deps.logError('claw-feishu', 'Failed to send Feishu / Lark file attachment', {
           ...context,
           filePath: file.path,
@@ -2285,8 +2232,7 @@ export class ClawRuntime {
           message
         })
       }
-    }
-    return { sent, failed }
+    })
   }
 
   private async recentGeneratedFilesForThread(

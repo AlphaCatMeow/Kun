@@ -39,7 +39,7 @@
 - [x] 4.1 Characterize existing conversation/thread reuse, attachments, streaming
   reply, mirror, fallback, and per-channel failure behavior.
 - [x] 4.2 Extract channel-independent conversation registry and Kun thread binding.
-- [ ] 4.3 Extract IM attachment authorization/upload and reply pipeline.
+- [x] 4.3 Extract IM attachment authorization/upload and reply pipeline.
 - [ ] 4.4 Extract Feishu transport adapter.
 - [ ] 4.5 Extract Telegram transport adapter.
 - [ ] 4.6 Extract Weixin transport adapter and legacy session compatibility.
