@@ -613,22 +613,26 @@ export async function createKunServeRuntime(
 	    }
 	  }
 	  const loop = new AgentLoop(loopOptions)
-	  const activeAgentRuns = new Set<Promise<'completed' | 'failed' | 'aborted'>>()
+	  const activeRuntimeRuns = new Set<Promise<'completed' | 'failed' | 'aborted'>>()
 	  let shuttingDown = false
+	  const trackRuntimeRun = <T extends 'completed' | 'failed' | 'aborted'>(run: Promise<T>): Promise<T> => {
+	    activeRuntimeRuns.add(run)
+	    void run.then(
+	      () => activeRuntimeRuns.delete(run),
+	      () => activeRuntimeRuns.delete(run)
+	    )
+	    return run
+	  }
 	  const runAgentTurn = (threadId: string, turnId: string): Promise<'completed' | 'failed' | 'aborted'> => {
 	    if (shuttingDown) {
 	      return turnService.interruptTurn({ threadId, turnId })
 	        .then(() => 'aborted' as const)
 	        .catch(() => 'aborted' as const)
 	    }
-	    const run = loop.runTurn(threadId, turnId)
-	    activeAgentRuns.add(run)
-	    void run.then(
-	      () => activeAgentRuns.delete(run),
-	      () => activeAgentRuns.delete(run)
-	    )
-	    return run
+	    return trackRuntimeRun(loop.runTurn(threadId, turnId))
 	  }
+	  const runReview = (input: Parameters<typeof reviewService.runReview>[0]) =>
+	    trackRuntimeRun(reviewService.runReview(input))
 	  backgroundShellRuntime.bindAgentLoop({
 	    runTurn: runAgentTurn
 	  })
@@ -958,7 +962,7 @@ export async function createKunServeRuntime(
       return loop.resumeInterruptedGoals(threadIds)
     },
     runReview(input) {
-      return reviewService.runReview(input)
+      return runReview(input)
 	    },
 	    runtimeToken: activeOptions.runtimeToken,
 	    insecure: activeOptions.insecure,
@@ -1019,7 +1023,7 @@ export async function createKunServeRuntime(
         shuttingDown = true
         loop.shutdownGoalResume()
         await turnService.interruptActiveTurns()
-        await waitForActiveRuns(activeAgentRuns)
+        await waitForActiveRuns(activeRuntimeRuns)
         await mcpProviders.close()
       } finally {
         await stores.shutdown?.()
