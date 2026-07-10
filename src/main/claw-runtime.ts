@@ -78,6 +78,13 @@ import {
 import { getRuntimeBaseUrlForSettings, runtimeAuthHeaders } from './runtime/kun-adapter'
 import { FeishuStreamer } from './feishu-streamer'
 import type { TelegramInboundPayload } from './telegram-runtime'
+import {
+  bindClawConversationToThread,
+  clearClawThreadBinding,
+  currentClawThreadId,
+  findClawConversation,
+  setClawConversationModelSelection
+} from './claw-conversation-registry'
 
 const MAX_IM_FILE_UPLOAD_BYTES = 50 * 1024 * 1024
 const CLAW_TELEGRAM_INBOUND_IMAGE_HEADING = '[Telegram inbound message]'
@@ -1554,10 +1561,7 @@ export class ClawRuntime {
     channel: ClawImChannelV1,
     session: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'>
   ): ClawImConversationV1 | undefined {
-    const targetKey = clawConversationKey(session.chatId, session.threadId)
-    return channel.conversations.find((conversation) =>
-      clawConversationKey(conversation.chatId, conversation.remoteThreadId) === targetKey
-    )
+    return findClawConversation(channel, session)
   }
 
   private async resetIncomingImThread(
@@ -1582,25 +1586,12 @@ export class ClawRuntime {
       claw: {
         channels: currentSettings.claw.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
-          return {
-            ...item,
-            threadId: '',
-            conversations: currentConversation
-              ? item.conversations.map((conversation) =>
-                  conversation.id === currentConversation.id
-                    ? {
-                        ...conversation,
-                        latestMessageId: session?.messageId || conversation.latestMessageId,
-                        senderId: session?.senderId || conversation.senderId,
-                        senderName: session?.senderName || conversation.senderName,
-                        localThreadId: '',
-                        updatedAt: now
-                      }
-                    : conversation
-                )
-              : item.conversations,
-            updatedAt: now
-          }
+          return clearClawThreadBinding({
+            channel: item,
+            conversation: currentConversation,
+            remoteSession: session,
+            now
+          })
         })
       }
     })
@@ -1628,45 +1619,18 @@ export class ClawRuntime {
             : remoteSession
               ? this.findChannelConversation(item, remoteSession)
               : undefined
-          const nextConversation: ClawImConversationV1 | null = remoteSession && !currentConversation
-            ? {
-                id: randomUUID(),
-                chatId: remoteSession.chatId,
-                remoteThreadId: remoteSession.threadId,
-                latestMessageId: remoteSession.messageId,
-                senderId: remoteSession.senderId,
-                senderName: remoteSession.senderName,
-                localThreadId: '',
-                workspaceRoot: this.resolveConversationWorkspaceRoot(currentSettings, item, remoteSession),
-                providerId,
-                model,
-                createdAt: now,
-                updatedAt: now
-              }
-            : null
-          return {
-            ...item,
-            providerId: remoteSession ? item.providerId : providerId,
-            model: remoteSession ? item.model : model,
-            conversations: currentConversation
-              ? item.conversations.map((entry) =>
-                  entry.id === currentConversation.id
-                    ? {
-                        ...entry,
-                        latestMessageId: remoteSession?.messageId || entry.latestMessageId,
-                        senderId: remoteSession?.senderId || entry.senderId,
-                        senderName: remoteSession?.senderName || entry.senderName,
-                        providerId,
-                        model,
-                        updatedAt: now
-                      }
-                    : entry
-                )
-              : nextConversation
-                ? [...item.conversations, nextConversation]
-                : item.conversations,
-            updatedAt: now
-          }
+          return setClawConversationModelSelection({
+            channel: item,
+            conversation: currentConversation,
+            remoteSession,
+            providerId,
+            model,
+            workspaceRoot: remoteSession
+              ? this.resolveConversationWorkspaceRoot(currentSettings, item, remoteSession)
+              : '',
+            now,
+            createId: randomUUID
+          })
         })
       }
     })
@@ -1677,13 +1641,7 @@ export class ClawRuntime {
     conversation: ClawImConversationV1 | undefined,
     remoteSession?: Pick<ClawImRemoteSessionV1, 'chatId' | 'threadId'> | undefined
   ): string {
-    const legacyChannelThreadId = remoteSession && !conversation && (channel?.conversations.length ?? 0) === 0
-      ? channel?.threadId.trim()
-      : ''
-    return conversation?.localThreadId.trim() ||
-      legacyChannelThreadId ||
-      (remoteSession ? '' : channel?.threadId.trim()) ||
-      ''
+    return currentClawThreadId({ channel, conversation, remoteSession })
   }
 
   private async listIncomingImThreads(
@@ -1863,49 +1821,23 @@ export class ClawRuntime {
         : undefined
     const now = new Date().toISOString()
     const modelResolution = currentImModelResolution(settings, currentChannel, input.conversation)
-    const nextConversation: ClawImConversationV1 | null = session && !currentConversation
-      ? {
-          id: randomUUID(),
-          chatId: session.chatId,
-          remoteThreadId: session.threadId,
-          latestMessageId: session.messageId,
-          senderId: session.senderId,
-          senderName: session.senderName,
-          localThreadId: input.threadId,
-          workspaceRoot: this.resolveConversationWorkspaceRoot(settings, currentChannel, session),
-          providerId: modelResolution.provider.id,
-          model: modelResolution.model,
-          createdAt: now,
-          updatedAt: now
-        }
-      : null
     await this.deps.store.patch({
       claw: {
         channels: currentSettings.claw.channels.map((item) => {
           if (item.id !== currentChannel.id) return item
-          return {
-            ...item,
+          return bindClawConversationToThread({
+            channel: item,
+            conversation: currentConversation,
+            remoteSession: session,
             threadId: input.threadId,
-            conversations: currentConversation
-              ? item.conversations.map((conversation) =>
-                  conversation.id === currentConversation.id
-                    ? {
-                        ...conversation,
-                        latestMessageId: session?.messageId || conversation.latestMessageId,
-                        senderId: session?.senderId || conversation.senderId,
-                        senderName: session?.senderName || conversation.senderName,
-                        localThreadId: input.threadId,
-                        providerId: conversation.providerId,
-                        model: conversation.model,
-                        updatedAt: now
-                      }
-                    : conversation
-                )
-              : nextConversation
-                ? [...item.conversations, nextConversation]
-                : item.conversations,
-            updatedAt: now
-          }
+            workspaceRoot: session
+              ? this.resolveConversationWorkspaceRoot(settings, currentChannel, session)
+              : '',
+            providerId: modelResolution.provider.id,
+            model: modelResolution.model,
+            now,
+            createId: randomUUID
+          })
         })
       }
     })
@@ -2085,14 +2017,7 @@ export class ClawRuntime {
     }
   ): Promise<ClawRunResult> {
     const { channel, conversation, prompt, provider, remoteSession, sender } = input
-    const legacyChannelThreadId = remoteSession && !conversation && (channel?.conversations.length ?? 0) === 0
-      ? channel?.threadId.trim()
-      : ''
-    const initialThreadId =
-      conversation?.localThreadId.trim() ||
-      legacyChannelThreadId ||
-      (remoteSession ? '' : channel?.threadId.trim()) ||
-      ''
+    const initialThreadId = currentClawThreadId({ channel, conversation, remoteSession })
     const modelResolution = currentImModelResolution(settings, channel, conversation)
     const result = await this.runPrompt(settings, {
       prompt,
@@ -2114,47 +2039,28 @@ export class ClawRuntime {
         // persisted while this turn was starting).
         const latestSettings = await this.deps.store.load()
         if (remoteSession) {
-          const existingConversation = conversation ?? this.findChannelConversation(channel, remoteSession)
-          const nextConversation: ClawImConversationV1 = existingConversation
-            ? {
-                ...existingConversation,
-                latestMessageId: remoteSession.messageId,
-                senderId: remoteSession.senderId,
-                senderName: remoteSession.senderName,
-                localThreadId: threadId,
-                workspaceRoot: this.resolveIncomingWorkspaceRoot(settings, channel, existingConversation, remoteSession),
-                providerId: existingConversation.providerId?.trim() || modelResolution.provider.id,
-                model: existingConversation.model?.trim() || modelResolution.model,
-                updatedAt: now
-              }
-            : {
-                id: randomUUID(),
-                chatId: remoteSession.chatId,
-                remoteThreadId: remoteSession.threadId,
-                latestMessageId: remoteSession.messageId,
-                senderId: remoteSession.senderId,
-                senderName: remoteSession.senderName,
-                localThreadId: threadId,
-                workspaceRoot: this.resolveConversationWorkspaceRoot(settings, channel, remoteSession),
-                providerId: modelResolution.provider.id,
-                model: modelResolution.model,
-                createdAt: now,
-                updatedAt: now
-              }
           await this.deps.store.patch({
             claw: {
-              channels: latestSettings.claw.channels.map((item) =>
-                item.id === channel.id
-                  ? {
-                      ...item,
-                      threadId,
-                      conversations: existingConversation
-                        ? item.conversations.map((entry) => entry.id === existingConversation.id ? nextConversation : entry)
-                        : [...item.conversations, nextConversation],
-                      updatedAt: now
-                    }
-                  : item
-              )
+              channels: latestSettings.claw.channels.map((item) => {
+                if (item.id !== channel.id) return item
+                const existingConversation = conversation ?? findClawConversation(item, remoteSession)
+                return bindClawConversationToThread({
+                  channel: item,
+                  conversation: existingConversation,
+                  remoteSession,
+                  threadId,
+                  workspaceRoot: this.resolveIncomingWorkspaceRoot(
+                    settings,
+                    item,
+                    existingConversation,
+                    remoteSession
+                  ),
+                  providerId: modelResolution.provider.id,
+                  model: modelResolution.model,
+                  now,
+                  createId: randomUUID
+                })
+              })
             }
           })
         } else if (!initialThreadId) {
