@@ -26,7 +26,7 @@
 
 - [ ] 3.1 Introduce immutable prepared-turn, model-round, and tool-dispatch type
   contracts with focused unit tests.
-- [ ] 3.2 Extract pure stream aggregation and loop telemetry helpers without
+- [x] 3.2 Extract pure stream aggregation and loop telemetry helpers without
   changing event payloads or ordering.
 - [ ] 3.3 Extract turn lifecycle/finalization and goal-resume coordination with
   once-only terminal outcome tests.

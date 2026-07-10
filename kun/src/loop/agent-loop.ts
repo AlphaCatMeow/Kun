@@ -109,6 +109,7 @@ import {
 import { ToolStormBreaker, type ToolStormBreakerOptions } from './tool-storm-breaker.js'
 import { healLoadedHistoryItems } from './history-healing.js'
 import { ModelStreamCollector } from './model-stream-collector.js'
+import { LoopTelemetry } from './loop-telemetry.js'
 import { CREATE_PLAN_TOOL_NAME } from '../adapters/tool/create-plan-tool.js'
 import {
   DESIGN_SVG_ANIMATE_TOOL_NAME,
@@ -297,9 +298,6 @@ export function canUpgradeThreadTitle(thread: { title?: string | null; titleAuto
   if (thread.titleAuto === true) return true
   return isAutoTitleableThreadTitle(thread.title)
 }
-const MAX_TOOL_CATALOG_SNAPSHOTS = 256
-const MAX_HYDRATED_PRESSURE_THREADS = 512
-
 type TurnFailure = {
   error: string
   code?: string
@@ -328,22 +326,11 @@ const PIPELINE_STAGE_LABELS: Record<PipelineStage, string> = {
   response_received: 'Response Received'
 }
 
-type ToolCatalogSnapshot = {
-  fingerprint: string
-  toolNames: string[]
-  toolHashes: Record<string, string>
-}
-
 type GoalElapsedTimer = {
   startedAtMs: number
   createdAt: string
   objective: string
 }
-
-type ToolCatalogDrift =
-  | { kind: 'none' }
-  | { kind: 'additive'; previous: ToolCatalogSnapshot }
-  | { kind: 'breaking'; previous: ToolCatalogSnapshot }
 
 export type AgentLoopOptions = {
   threadStore: ThreadStore
@@ -464,11 +451,8 @@ export type AgentLoopOptions = {
 export class AgentLoop {
   private readonly opts: AgentLoopOptions
   private readonly autoModelRoutes = new Map<string, AutoModelRouteSelection>()
-  private readonly promptTokenPressure = new Map<string, { model: string; promptTokens: number }>()
-  /** Threads for which a one-time pressure hydration from persisted usage was already attempted. */
-  private readonly hydratedPressureThreads = new Set<string>()
   private readonly toolStormBreakers = new Map<string, ToolStormBreaker>()
-  private readonly toolCatalogSnapshots = new Map<string, ToolCatalogSnapshot>()
+  private readonly telemetry: LoopTelemetry
   private readonly lastNoToolTextByTurn = new Map<string, string>()
   private readonly goalNoToolRecoveryStepsByTurn = new Map<string, number>()
   private readonly emptyPostToolRecoveryStepsByTurn = new Map<string, number>()
@@ -487,6 +471,7 @@ export class AgentLoop {
 
   constructor(opts: AgentLoopOptions) {
     this.opts = opts
+    this.telemetry = new LoopTelemetry(opts.sessionStore)
     this.goalResume = new GoalResumeCoordinator({
       launch: (threadId) => this.launchGoalResumeTurn(threadId),
       getActiveGoalKey: async (threadId) => {
@@ -699,7 +684,7 @@ export class AgentLoop {
       this.emptyPostToolRecoveryStepsByTurn.delete(turnId)
       this.svgCompletionRecoveryStepsByTurn.delete(turnId)
       this.turnFailures.delete(turnId)
-      this.promptTokenPressure.delete(threadId)
+      this.telemetry.clearPromptPressure(threadId)
       await runTurnEndLifecycleHooks(this.lifecycleHookDeps(), {
         threadId,
         turnId,
@@ -1313,7 +1298,7 @@ export class AgentLoop {
       tools.map((tool) => [tool.name, { providerId: tool.providerId, toolKind: tool.toolKind }])
     )
     const toolCatalog = buildToolCatalogFingerprint(toolSpecs)
-    const toolCatalogDrift = this.recordToolCatalogFingerprint({
+    const toolCatalogDrift = this.telemetry.recordToolCatalogFingerprint({
       threadId,
       workspace: thread?.workspace ?? '',
       mode: effectiveMode ?? 'agent',
@@ -1718,7 +1703,7 @@ export class AgentLoop {
           break
         }
         case 'usage': {
-          this.recordPromptPressure(threadId, request.model, intent.usage.promptTokens)
+          this.telemetry.recordPromptPressure(threadId, request.model, intent.usage.promptTokens)
           const usage = this.opts.usage.record(threadId, intent.usage, cacheSignature)
           await this.recordGoalUsage(threadId, intent.usage.totalTokens)
           await this.opts.events.record({
@@ -2562,8 +2547,8 @@ export class AgentLoop {
     // when the in-memory pressure map is empty. Without this the next
     // line falls back to the item-only estimator, which under-counts and
     // can silently skip compaction until the context overruns the window.
-    await this.hydratePromptPressureIfCold(context.threadId, model)
-    const pressure = this.consumePromptPressure(context.threadId, model)
+    await this.telemetry.hydratePromptPressureIfCold(context.threadId, model)
+    const pressure = this.telemetry.consumePromptPressure(context.threadId, model)
     const thresholdModel = pressure?.model || model
     const overheadTokens = estimateRequestOverheadTokens({
       systemPrompt: this.opts.prefix.systemPrompt,
@@ -2795,61 +2780,6 @@ export class AgentLoop {
     })
   }
 
-  private recordPromptPressure(threadId: string, model: string, promptTokens: number): void {
-    if (!threadId || promptTokens <= 0) return
-    const current = this.promptTokenPressure.get(threadId)
-    if (current && current.promptTokens >= promptTokens) return
-    this.promptTokenPressure.set(threadId, { model, promptTokens })
-  }
-
-  /**
-   * Seed `promptTokenPressure` from persisted usage the first time a thread
-   * is touched in this process. The pressure map is in-memory only, so after
-   * a restart the compaction trigger would otherwise rely on the item-only
-   * estimator (which omits the system prompt and tool schemas) and could
-   * skip compaction for an already-oversized thread. `loadUsageRecords`
-   * returns per-request deltas ordered oldest-first, so the last positive
-   * entry is the most recent request's prompt size — the best available
-   * proxy for the current context pressure. Best-effort: any failure leaves
-   * the estimator (plus overhead floor) as the fallback.
-   */
-  private async hydratePromptPressureIfCold(threadId: string, fallbackModel: string): Promise<void> {
-    if (!threadId) return
-    if (this.promptTokenPressure.has(threadId)) return
-    if (this.hydratedPressureThreads.has(threadId)) return
-    const loadUsageRecords = this.opts.sessionStore.loadUsageRecords
-    if (typeof loadUsageRecords !== 'function') {
-      this.rememberHydratedPressureThread(threadId)
-      return
-    }
-    try {
-      const records = await loadUsageRecords.call(this.opts.sessionStore, { threadId })
-      let restored: { model: string; promptTokens: number } | undefined
-      for (const record of records) {
-        if (record.threadId !== threadId) continue
-        const promptTokens = Math.floor(record.usage?.promptTokens ?? 0)
-        if (promptTokens > 0) {
-          restored = { model: record.model || fallbackModel, promptTokens }
-        }
-      }
-      if (restored && !this.promptTokenPressure.has(threadId)) {
-        this.promptTokenPressure.set(threadId, restored)
-      }
-      this.rememberHydratedPressureThread(threadId)
-    } catch {
-      // Best-effort restore; the estimator + overhead floor still applies.
-    }
-  }
-
-  private rememberHydratedPressureThread(threadId: string): void {
-    this.hydratedPressureThreads.delete(threadId)
-    this.hydratedPressureThreads.add(threadId)
-    if (this.hydratedPressureThreads.size > MAX_HYDRATED_PRESSURE_THREADS) {
-      const oldest = this.hydratedPressureThreads.values().next().value
-      if (oldest !== undefined) this.hydratedPressureThreads.delete(oldest)
-    }
-  }
-
   private async recordToolCatalogDrift(input: {
     threadId: string
     turnId: string
@@ -2877,51 +2807,6 @@ export class AgentLoop {
       toolNames: input.toolNames.slice(0, 50),
       message: input.message
     })
-  }
-
-  private recordToolCatalogFingerprint(input: {
-    threadId: string
-    workspace: string
-    mode: string
-    model: string
-    activeSkillIds: readonly string[]
-    allowedToolNames?: readonly string[]
-    userInputDisabled?: boolean
-    guiDesignCanvas?: boolean
-    guiDesignMode?: boolean
-    guiDesignArtifact?: GuiDesignArtifactContext
-    fingerprint: string
-    toolNames: string[]
-    toolHashes: Record<string, string>
-  }): ToolCatalogDrift {
-    const key = JSON.stringify({
-      threadId: input.threadId,
-      workspace: input.workspace,
-      mode: input.mode,
-      model: input.model,
-      activeSkillIds: [...input.activeSkillIds].sort(),
-      allowedToolNames: input.allowedToolNames ? [...input.allowedToolNames].sort() : [],
-      userInputDisabled: input.userInputDisabled === true,
-      guiDesignCanvas: input.guiDesignCanvas === true,
-      guiDesignMode: input.guiDesignMode === true,
-      guiDesignArtifact: input.guiDesignArtifact?.kind ?? null
-    })
-    const current: ToolCatalogSnapshot = {
-      fingerprint: input.fingerprint,
-      toolNames: input.toolNames,
-      toolHashes: input.toolHashes
-    }
-    const previous = this.toolCatalogSnapshots.get(key)
-    this.toolCatalogSnapshots.delete(key)
-    this.toolCatalogSnapshots.set(key, current)
-    if (this.toolCatalogSnapshots.size > MAX_TOOL_CATALOG_SNAPSHOTS) {
-      const oldest = this.toolCatalogSnapshots.keys().next().value
-      if (oldest !== undefined) this.toolCatalogSnapshots.delete(oldest)
-    }
-    if (!previous || previous.fingerprint === input.fingerprint) return { kind: 'none' }
-    return isAdditiveToolCatalogChange(previous, current)
-      ? { kind: 'additive', previous }
-      : { kind: 'breaking', previous }
   }
 
   private async checkBudgetGate(
@@ -3022,20 +2907,6 @@ export class AgentLoop {
     })
     if (!goal) return
     await this.opts.events.record({ kind: 'goal_updated', threadId, goal })
-  }
-
-  private consumePromptPressure(
-    threadId: string,
-    model: string
-  ): { model: string; promptTokens: number } | undefined {
-    if (!threadId) return undefined
-    const pressure = this.promptTokenPressure.get(threadId)
-    if (!pressure) return undefined
-    this.promptTokenPressure.delete(threadId)
-    return {
-      model: pressure.model || model,
-      promptTokens: pressure.promptTokens
-    }
   }
 
   private async resolveTurnModel(input: {
@@ -3375,20 +3246,6 @@ function normalizeSandboxMode(
     default:
       return DEFAULT_SANDBOX_MODE
   }
-}
-
-function isAdditiveToolCatalogChange(previous: ToolCatalogSnapshot, current: ToolCatalogSnapshot): boolean {
-  let added = false
-  for (const name of current.toolNames) {
-    if (!previous.toolHashes[name]) added = true
-  }
-  if (!added) return false
-  for (const name of previous.toolNames) {
-    const previousHash = previous.toolHashes[name]
-    const currentHash = current.toolHashes[name]
-    if (!previousHash || !currentHash || previousHash !== currentHash) return false
-  }
-  return true
 }
 
 function buildToolCatalogDriftMessage(toolCatalog: {

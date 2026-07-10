@@ -14,6 +14,7 @@ import { COMPACTION_SYSTEM_PROMPT } from '../src/loop/compaction-summary.js'
 import { effectiveHistoryAfterLatestCompaction } from '../src/loop/compaction-history.js'
 import { resolveModelContextProfile } from '../src/loop/model-context-profile.js'
 import { isPlanClarifyingQuestion } from '../src/loop/agent-loop.js'
+import { LoopTelemetry } from '../src/loop/loop-telemetry.js'
 import {
   makeApprovalItem,
   makeAssistantReasoningItem,
@@ -28,6 +29,7 @@ import { createImmutablePrefix, setSystemPrompt } from '../src/cache/immutable-p
 import { InflightTracker } from '../src/loop/inflight-tracker.js'
 import { SteeringQueue } from '../src/loop/steering-queue.js'
 import { SequentialIdGenerator } from '../src/ports/id-generator.js'
+import type { SessionStore } from '../src/ports/session-store.js'
 import { TurnService } from '../src/services/turn-service.js'
 import type { TurnItem } from '../src/contracts/items.js'
 import type { ModelRequest, ModelStreamChunk } from '../src/ports/model-client.js'
@@ -73,19 +75,18 @@ describe('AgentLoop', () => {
   })
 
   it('bounds cached prompt-pressure hydration markers', () => {
-    const h = makeHarness(makeSilentModel())
-    const loop = h.loop as unknown as {
+    const telemetry = new LoopTelemetry({} as unknown as SessionStore) as unknown as {
       rememberHydratedPressureThread(threadId: string): void
       hydratedPressureThreads: Set<string>
     }
 
     for (let index = 0; index <= 512; index += 1) {
-      loop.rememberHydratedPressureThread(`thread_${index}`)
+      telemetry.rememberHydratedPressureThread(`thread_${index}`)
     }
 
-    expect(loop.hydratedPressureThreads).toHaveLength(512)
-    expect(loop.hydratedPressureThreads.has('thread_0')).toBe(false)
-    expect(loop.hydratedPressureThreads.has('thread_512')).toBe(true)
+    expect(telemetry.hydratedPressureThreads).toHaveLength(512)
+    expect(telemetry.hydratedPressureThreads.has('thread_0')).toBe(false)
+    expect(telemetry.hydratedPressureThreads.has('thread_512')).toBe(true)
   })
 
   it('injects the current shell runtime under the full-access sandbox', async () => {
