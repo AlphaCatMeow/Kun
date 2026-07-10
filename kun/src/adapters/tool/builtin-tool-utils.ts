@@ -603,35 +603,71 @@ function executableResponds(candidate: string): boolean {
   return !probe.error && probe.status === 0
 }
 
+/** Combined stdout/stderr ceiling for helper subprocesses such as rg and git. */
+export const DEFAULT_SPAWN_CAPTURE_MAX_BYTES = 1024 * 1024
+
 export async function spawnCapture(
   file: string,
   args: string[],
-  options: { cwd: string; signal?: AbortSignal }
-): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  options: { cwd: string; signal?: AbortSignal; maxOutputBytes?: number }
+): Promise<{ stdout: string; stderr: string; exitCode: number | null; outputTruncated: boolean }> {
+  const maxOutputBytes = normalizePositiveInteger(options.maxOutputBytes, DEFAULT_SPAWN_CAPTURE_MAX_BYTES)
   const child = spawn(file, args, {
     cwd: options.cwd,
     env: shellSpawnEnv(),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
   })
-  let stdout = ''
-  let stderr = ''
+  const stdout: Buffer[] = []
+  const stderr: Buffer[] = []
+  let outputBytes = 0
+  let outputTruncated = false
+  let outputTerminationRequested = false
+  let forceKillTimer: ReturnType<typeof setTimeout> | undefined
+  const stopForOutputLimit = () => {
+    if (outputTerminationRequested) return
+    outputTerminationRequested = true
+    terminateSpawnTree(child)
+    // A malicious helper can ignore SIGTERM. Escalate shortly afterward so a
+    // capped capture also releases its process and pipe resources.
+    forceKillTimer = setTimeout(() => terminateSpawnTree(child, { signal: 'SIGKILL' }), 250)
+    forceKillTimer.unref?.()
+  }
+  const appendOutput = (target: Buffer[], chunk: Buffer | string) => {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    const remaining = Math.max(0, maxOutputBytes - outputBytes)
+    if (remaining > 0) {
+      const kept = buffer.subarray(0, Math.min(buffer.length, remaining))
+      target.push(kept)
+      outputBytes += kept.length
+    }
+    if (buffer.length > remaining) {
+      outputTruncated = true
+      stopForOutputLimit()
+    }
+  }
   const onAbort = () => terminateSpawnTree(child)
   options.signal?.addEventListener('abort', onAbort, { once: true })
   child.stdout?.on('data', (chunk: Buffer | string) => {
-    stdout += chunk.toString()
+    appendOutput(stdout, chunk)
   })
   child.stderr?.on('data', (chunk: Buffer | string) => {
-    stderr += chunk.toString()
+    appendOutput(stderr, chunk)
   })
   const exitCode = await new Promise<number | null>((resolvePromise, rejectPromise) => {
     child.once('error', rejectPromise)
     child.once('close', (code) => resolvePromise(code))
   }).finally(() => {
     options.signal?.removeEventListener('abort', onAbort)
+    if (forceKillTimer) clearTimeout(forceKillTimer)
   })
   if (options.signal?.aborted) throw new Error('command aborted')
-  return { stdout, stderr, exitCode }
+  return {
+    stdout: Buffer.concat(stdout).toString('utf8'),
+    stderr: Buffer.concat(stderr).toString('utf8'),
+    exitCode,
+    outputTruncated
+  }
 }
 
 export async function collectPaths(root: string, options: { includeDirectories?: boolean; limit: number }): Promise<string[]> {

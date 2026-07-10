@@ -65,6 +65,9 @@ function buildContext(workspace: string, overrides: Partial<ToolHostContext> = {
     turnId: 'turn_1',
     workspace,
     approvalPolicy: 'on-request',
+    // These tests exercise the full builtin family; product defaults are
+    // intentionally safer and are covered by policy/settings tests.
+    sandboxMode: 'danger-full-access',
     abortSignal: new AbortController().signal,
     awaitApproval: async () => 'allow',
     ...overrides
