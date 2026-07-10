@@ -110,6 +110,7 @@ import { ModelStreamCollector } from './model-stream-collector.js'
 import { LoopTelemetry } from './loop-telemetry.js'
 import { collectParallelToolDispatchCandidates } from './tool-dispatch-policy.js'
 import { InteractiveToolBridge } from './interactive-tool-bridge.js'
+import { createToolExecutionContext } from './tool-context-factory.js'
 import { CREATE_PLAN_TOOL_NAME } from '../adapters/tool/create-plan-tool.js'
 import {
   DESIGN_SVG_ANIMATE_TOOL_NAME,
@@ -2047,7 +2048,15 @@ export class AgentLoop {
   }
 
   private async dispatchToolCalls(input: ToolDispatchInput): Promise<ToolDispatchOutcome> {
-    const context = this.createToolContext(input)
+    const context = createToolExecutionContext(input, {
+      memoryEnabled: Boolean(this.opts.memoryStore),
+      ...(this.opts.blockedProviderIds ? { blockedProviderIds: this.opts.blockedProviderIds } : {}),
+      ...(this.opts.blockedToolNames ? { blockedToolNames: this.opts.blockedToolNames } : {}),
+      ...(this.opts.blockedSkillIds ? { blockedSkillIds: this.opts.blockedSkillIds } : {}),
+      ...(this.opts.runtimeDataDir ? { runtimeDataDir: this.opts.runtimeDataDir } : {}),
+      ...(this.opts.artifactStore ? { artifactStore: this.opts.artifactStore } : {}),
+      interactiveToolBridge: this.interactiveToolBridge
+    })
     let index = 0
     let executedAny = false
     const markProgress = (toolName: string): void => {
@@ -2146,69 +2155,6 @@ export class AgentLoop {
     }
 
     return executedAny ? 'continue' : 'all_suppressed'
-  }
-
-  private createToolContext(input: {
-    threadId: string
-    turnId: string
-    workspace: string
-    threadMode?: 'agent' | 'plan'
-    activePlanContext?: GuiPlanContext
-    guiDesignCanvas?: boolean
-    guiDesignMode?: boolean
-    guiDesignArtifact?: GuiDesignArtifactContext
-    modelProviderId?: string
-    modelCapabilities: ModelCapabilityMetadata
-    activeSkillIds: readonly string[]
-    allowedToolNames?: readonly string[]
-    userInputDisabled?: boolean
-    imContext?: boolean
-    approvalPolicy: ToolHostContext['approvalPolicy']
-    sandboxMode: NonNullable<ToolHostContext['sandboxMode']>
-    signal: AbortSignal
-  }): ToolHostContext {
-    return {
-      threadId: input.threadId,
-      turnId: input.turnId,
-      workspace: input.workspace,
-      threadMode: input.threadMode,
-      ...(input.activePlanContext ? { guiPlan: input.activePlanContext } : {}),
-      ...(input.guiDesignCanvas ? { guiDesignCanvas: true } : {}),
-      ...(input.guiDesignMode ? { guiDesignMode: true } : {}),
-      ...(input.guiDesignArtifact ? { guiDesignArtifact: input.guiDesignArtifact } : {}),
-      ...(input.imContext ? { imContext: true } : {}),
-      model: input.modelCapabilities,
-      ...(input.modelProviderId ? { modelProviderId: input.modelProviderId } : {}),
-      activeSkillIds: input.activeSkillIds,
-      memoryPolicy: { enabled: Boolean(this.opts.memoryStore) },
-      delegationPolicy: { enabled: false },
-      ...(input.allowedToolNames ? { allowedToolNames: input.allowedToolNames } : {}),
-      ...(this.opts.blockedProviderIds ? { blockedProviderIds: this.opts.blockedProviderIds } : {}),
-      ...(this.opts.blockedToolNames ? { blockedToolNames: this.opts.blockedToolNames } : {}),
-      ...(this.opts.blockedSkillIds ? { blockedSkillIds: this.opts.blockedSkillIds } : {}),
-      approvalPolicy: input.approvalPolicy,
-      sandboxMode: input.sandboxMode,
-      ...(this.opts.runtimeDataDir ? { runtimeDataDir: this.opts.runtimeDataDir } : {}),
-      ...(this.opts.artifactStore ? { artifactStore: this.opts.artifactStore } : {}),
-      abortSignal: input.signal,
-      awaitApproval: (approval) => this.interactiveToolBridge.awaitApproval({
-        approval,
-        approvalPolicy: input.approvalPolicy,
-        sandboxMode: input.sandboxMode,
-        signal: input.signal
-      }),
-      ...(input.userInputDisabled
-        ? {}
-        : {
-            awaitUserInput: (inputRequest) =>
-              this.interactiveToolBridge.awaitUserInput({
-                threadId: input.threadId,
-                turnId: input.turnId,
-                input: inputRequest,
-                signal: input.signal
-              })
-          })
-    }
   }
 
   private async executeToolCall(input: {
