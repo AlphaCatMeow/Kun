@@ -10,7 +10,7 @@ import { SequentialIdGenerator } from '../../ports/id-generator.js'
 import { RuntimeEventRecorder } from '../../services/runtime-event-recorder.js'
 import { TurnService } from '../../services/turn-service.js'
 import type { JsonResponse } from '../response.js'
-import { startTurn } from './turns.js'
+import { rewindThread, startTurn } from './turns.js'
 
 describe('POST /v1/threads/:id/turns admission', () => {
   it('maps an archived thread to a conflict without creating a turn', async () => {
@@ -110,5 +110,52 @@ describe('POST /v1/threads/:id/turns admission', () => {
     })
     expect((await threadStore.get('thr_route_capacity_b'))?.turns).toEqual([])
     await turns.interruptTurn({ threadId: 'thr_route_capacity_a', turnId: first.turnId })
+  })
+
+  it('maps an active rewind attempt to a structured conflict', async () => {
+    const threadStore = new InMemoryThreadStore()
+    const sessionStore = new InMemorySessionStore()
+    const eventBus = new InMemoryEventBus()
+    const nowIso = () => '2026-06-18T00:00:00.000Z'
+    const turns = new TurnService({
+      threadStore,
+      sessionStore,
+      events: new RuntimeEventRecorder({
+        eventBus,
+        sessionStore,
+        allocateSeq: (threadId) => eventBus.allocateSeq(threadId),
+        nowIso
+      }),
+      inflight: new InflightTracker(),
+      steering: new SteeringQueue(),
+      compactor: new ContextCompactor(),
+      ids: new SequentialIdGenerator(),
+      nowIso
+    })
+    const threadId = 'thr_route_rewind_active'
+    await threadStore.upsert(createThreadRecord({
+      id: threadId,
+      title: 'Route rewind',
+      workspace: '/tmp/workspace',
+      model: 'deepseek-v4-pro'
+    }))
+    const started = await turns.startTurn({ threadId, request: { prompt: 'stay active' } })
+
+    const response = await rewindThread(
+      turns,
+      threadId,
+      new Request(`http://kun.local/v1/threads/${threadId}/rewind`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ turnId: started.turnId })
+      })
+    ) as JsonResponse
+
+    expect(response.status).toBe(409)
+    expect(JSON.parse(response.body)).toEqual({
+      code: 'conflict',
+      message: `cannot rewind while a turn is active: ${threadId}`
+    })
+    await turns.interruptTurn({ threadId, turnId: started.turnId })
   })
 })

@@ -213,7 +213,12 @@ export class TurnService {
     return this.withThreadMutation(input.threadId, async () => {
       const thread = await this.deps.threadStore.get(input.threadId)
       if (!thread) throw new Error(`thread not found: ${input.threadId}`)
-      if (thread.status === 'running') throw new Error('Cannot rewind while a turn is running.')
+      // `archived` is an overlay, so checking the thread marker alone lets a
+      // caller rewrite history while a turn is still queued/running. The turn
+      // records are the source of truth for execution state.
+      if (thread.turns.some(isActiveTurn)) {
+        throw new TurnConflictError(`cannot rewind while a turn is active: ${input.threadId}`)
+      }
       const targetIndex = thread.turns.findIndex((turn) => turn.id === input.turnId)
       if (targetIndex < 0) throw new Error(`turn not found: ${input.turnId}`)
 
@@ -225,7 +230,8 @@ export class TurnService {
       const now = this.deps.nowIso()
       await this.deps.threadStore.upsert({
         ...touchThread(thread, now),
-        status: 'idle',
+        // Rewind must not implicitly unarchive a completed conversation.
+        status: thread.status === 'archived' ? 'archived' : 'idle',
         turns: keptTurns,
         updatedAt: now
       })

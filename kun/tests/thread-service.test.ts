@@ -69,6 +69,33 @@ describe('ThreadService runtime defaults', () => {
   })
 })
 
+describe('ThreadService status updates', () => {
+  it('only treats archive state as mutable and derives restored execution state from turns', async () => {
+    const { service, threadStore, nowIso } = buildService()
+    const thread = await service.create(
+      { workspace: '/tmp/status', model: 'deepseek-chat', mode: 'agent' },
+      { id: 'thr_status', title: 'Status' }
+    )
+    const active = startTurn(createTurnRecord({
+      id: 'turn_active',
+      threadId: thread.id,
+      prompt: 'still running',
+      createdAt: nowIso()
+    }), nowIso())
+    await threadStore.upsert({ ...thread, status: 'running', turns: [active] })
+
+    const archived = await service.update(thread.id, { status: 'archived' })
+    expect(archived.status).toBe('archived')
+
+    const restored = await service.update(thread.id, { status: 'idle' })
+    expect(restored.status).toBe('running')
+
+    await expect(service.update(thread.id, { status: 'deleted' } as never))
+      .rejects.toThrow('thread status is managed by the runtime')
+    expect((await threadStore.get(thread.id))?.status).toBe('running')
+  })
+})
+
 async function seedParentWithTurns(
   service: ThreadService,
   threadStore: InMemoryThreadStore,

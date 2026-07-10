@@ -12,6 +12,7 @@ import type {
   ThreadRecord,
   ThreadRelation,
   ThreadStatus,
+  ThreadUpdateStatus,
   ThreadTodoItem,
   ThreadTodoList,
   ThreadTodoSource,
@@ -191,7 +192,8 @@ export class ThreadService {
     titleAuto?: boolean
     summary?: string
     workspace?: string
-    status?: ThreadStatus
+    /** Archive or unarchive only; execution and deletion states are internal. */
+    status?: ThreadUpdateStatus
     approvalPolicy?: ApprovalPolicy
     sandboxMode?: SandboxMode
     pinned?: boolean
@@ -202,8 +204,25 @@ export class ThreadService {
     const updated = await this.withThreadMutation(threadId, async () => {
       const current = await this.threadStore.get(threadId)
       if (!current) throw new Error(`thread not found: ${threadId}`)
-      const { costBudgetUsd, costBudgetWarningSent, ...standardPatch } = patch
+      // Keep this runtime check in addition to the request schema/type. The
+      // service is also used directly by internal callers, and accepting an
+      // arbitrary status here could desynchronise durable turn state from the
+      // thread's lifecycle marker.
+      if (patch.status !== undefined && patch.status !== 'idle' && patch.status !== 'archived') {
+        throw new Error(`thread status is managed by the runtime: ${patch.status}`)
+      }
+      const { costBudgetUsd, costBudgetWarningSent, status, ...standardPatch } = patch
       const merged: ThreadRecord = { ...current, ...standardPatch }
+      if (status === 'archived') {
+        // Archival is a visibility overlay: an already-active turn can settle
+        // but no new turn may be admitted until the thread is restored.
+        merged.status = 'archived'
+      } else if (status === 'idle') {
+        // Restoring an archived thread must not lie about a concurrently
+        // active turn. The per-thread mutation queue serializes this with
+        // TurnService transitions, so the current turns are authoritative.
+        merged.status = threadStatusFromTurns(current.turns)
+      }
       if (costBudgetUsd === null) {
         delete (merged as { costBudgetUsd?: number }).costBudgetUsd
         delete (merged as { costBudgetWarningSent?: boolean }).costBudgetWarningSent
@@ -846,6 +865,12 @@ function matchesThreadSearch(thread: ThreadSummary, query: string): boolean {
     thread.forkedFromTitle,
     thread.forkedFromThreadId
   ].some((value) => value?.toLowerCase().includes(query))
+}
+
+function threadStatusFromTurns(turns: Turn[]): 'idle' | 'running' {
+  return turns.some((turn) => turn.status === 'queued' || turn.status === 'running')
+    ? 'running'
+    : 'idle'
 }
 
 function rebuildTurnsFromItems(input: {

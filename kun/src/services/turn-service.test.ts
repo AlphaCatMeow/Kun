@@ -691,7 +691,8 @@ describe('TurnService rewindThread', () => {
         id: threadId,
         title: 'Rewind',
         workspace: '/tmp/workspace',
-        model: 'thread-model'
+        model: 'thread-model',
+        status: 'archived'
       }),
       turns: [firstTurn, secondTurn]
     })
@@ -708,6 +709,47 @@ describe('TurnService rewindThread', () => {
       'item_1_user',
       'item_1_assistant'
     ])
-    expect((await threadStore.get(threadId))?.turns.map((turn) => turn.id)).toEqual([firstTurnId])
+    expect(await threadStore.get(threadId)).toMatchObject({
+      status: 'archived',
+      turns: [expect.objectContaining({ id: firstTurnId })]
+    })
+  })
+
+  it('refuses to rewrite history while any turn remains active, including under archival', async () => {
+    const sessionStore = new InMemorySessionStore()
+    const threadStore = new InMemoryThreadStore()
+    const eventBus = new InMemoryEventBus()
+    const nowIso = () => '2026-06-18T00:00:00.000Z'
+    const service = new TurnService({
+      threadStore,
+      sessionStore,
+      events: new RuntimeEventRecorder({
+        eventBus,
+        sessionStore,
+        allocateSeq: (threadId) => eventBus.allocateSeq(threadId),
+        nowIso
+      }),
+      inflight: new InflightTracker(),
+      steering: new SteeringQueue(),
+      compactor: new ContextCompactor(),
+      ids: new SequentialIdGenerator(),
+      nowIso
+    })
+    const threadId = 'thr_rewind_active'
+    await threadStore.upsert(createThreadRecord({
+      id: threadId,
+      title: 'Active rewind',
+      workspace: '/tmp/workspace',
+      model: 'thread-model'
+    }))
+    const started = await service.startTurn({ threadId, request: { prompt: 'do not rewind' } })
+    const activeThread = await threadStore.get(threadId)
+    if (!activeThread) throw new Error('missing active thread')
+    await threadStore.upsert({ ...activeThread, status: 'archived' })
+
+    await expect(service.rewindThread({ threadId, turnId: started.turnId }))
+      .rejects.toBeInstanceOf(TurnConflictError)
+    expect((await threadStore.get(threadId))?.turns.map((turn) => turn.id)).toEqual([started.turnId])
+    await service.interruptTurn({ threadId, turnId: started.turnId })
   })
 })

@@ -10,6 +10,15 @@ import {
 export const ThreadStatus = z.enum(['idle', 'running', 'archived', 'deleted'])
 export type ThreadStatus = z.infer<typeof ThreadStatus>
 
+/**
+ * The generic thread PATCH endpoint only owns the archival visibility
+ * overlay. Execution and deletion states are controlled by TurnService and
+ * ThreadService.delete respectively, so an HTTP client cannot manufacture a
+ * running/deleted lifecycle state.
+ */
+export const ThreadUpdateStatus = z.enum(['idle', 'archived'])
+export type ThreadUpdateStatus = z.infer<typeof ThreadUpdateStatus>
+
 export const ThreadMode = z.enum(['agent', 'plan'])
 export type ThreadMode = z.infer<typeof ThreadMode>
 
@@ -284,7 +293,7 @@ export const UpdateThreadRequest = z
     /** Marks the new title as auto/provisional (true) or user-set/locked (false). */
     titleAuto: z.boolean().optional(),
     workspace: z.string().min(1).optional(),
-    status: ThreadStatus.optional(),
+    status: ThreadUpdateStatus.optional(),
     approvalPolicy: ApprovalPolicySchema.optional(),
     sandboxMode: SandboxModeSchema.optional(),
     pinned: z.boolean().optional(),
