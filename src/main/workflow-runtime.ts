@@ -44,6 +44,7 @@ import {
   type ScheduleRuntimeDeps
 } from './schedule-runtime-helpers'
 import { resolveCodexOAuthApiKey } from './codex-auth'
+import { createWorkflowExecutionPlan, selectWorkflowTrigger } from './workflow-graph-planner'
 
 const MAX_NODE_EXECUTIONS = 200
 const MAX_RUN_DURATION_MS = 30 * 60_000
@@ -1190,14 +1191,7 @@ export class WorkflowRuntime {
       return { ok: false, status: 'error', message: 'Workflow is already running.', output: '', runId: '' }
     }
     // Prefer an enabled trigger (manual > schedule > webhook); fall back to any trigger.
-    const trigger =
-      workflow.nodes.find((node) => node.type === 'manual-trigger' && !node.disabled) ??
-      workflow.nodes.find((node) => node.type === 'schedule-trigger' && !node.disabled) ??
-      workflow.nodes.find((node) => node.type === 'webhook-trigger' && !node.disabled) ??
-      workflow.nodes.find(
-        (node) =>
-          node.type === 'manual-trigger' || node.type === 'schedule-trigger' || node.type === 'webhook-trigger'
-      )
+    const trigger = selectWorkflowTrigger(workflow, true) ?? selectWorkflowTrigger(workflow)
     if (!trigger) {
       return { ok: false, status: 'error', message: 'Workflow has no trigger node.', output: '', runId: '' }
     }
@@ -1258,10 +1252,7 @@ export class WorkflowRuntime {
     const workflow = settings.workflow.workflows.find((item) => item.id === workflowId)
     if (!workflow) return { ok: false, message: 'Workflow not found.' }
     if (this.runningWorkflowIds.has(workflowId)) return { ok: false, message: 'Workflow is already running.' }
-    const trigger =
-      workflow.nodes.find((node) => node.type === 'manual-trigger') ??
-      workflow.nodes.find((node) => node.type === 'schedule-trigger') ??
-      workflow.nodes.find((node) => node.type === 'webhook-trigger')
+    const trigger = selectWorkflowTrigger(workflow)
     if (!trigger) return { ok: false, message: 'Workflow has no trigger node.' }
     const inputSchema = trigger.type === 'manual-trigger' ? trigger.config.inputSchema : undefined
     const missing = missingRequiredInput(inputSchema, input)
@@ -1603,17 +1594,13 @@ export class WorkflowRuntime {
     }
     const isCanceled = (): boolean => (ctx.cancelId ? this.cancelRequested.has(ctx.cancelId) : false)
 
-    const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]))
-    const outEdges = new Map<string, WorkflowConnectionV1[]>()
-    const inEdges = new Map<string, WorkflowConnectionV1[]>()
-    for (const edge of workflow.connections) {
-      const outList = outEdges.get(edge.source) ?? []
-      outList.push(edge)
-      outEdges.set(edge.source, outList)
-      const inList = inEdges.get(edge.target) ?? []
-      inList.push(edge)
-      inEdges.set(edge.target, inList)
+    const planned = createWorkflowExecutionPlan(workflow, triggerNodeId)
+    if (!planned.ok) {
+      return { status: 'error', errorMessage: planned.error, nodeResults: [], output: initialPayload }
     }
+    const nodeById = planned.plan.nodeById
+    const outEdges = planned.plan.outgoingByNodeId
+    const inEdges = planned.plan.incomingByNodeId
 
     const nodeResults: WorkflowNodeRunResultV1[] = []
     const delivered = new Set<string>()
@@ -1636,7 +1623,7 @@ export class WorkflowRuntime {
     const redact = (text: string): string => redactSecrets(secretValues, text)
     const scopeFor = (): InterpScope => ({ nodes: nodeOutputs, env, run: runVars, loop: ctx.loop })
 
-    const incoming = (nodeId: string): WorkflowConnectionV1[] => inEdges.get(nodeId) ?? []
+    const incoming = (nodeId: string): readonly WorkflowConnectionV1[] => inEdges.get(nodeId) ?? []
     const edgeResolved = (edge: WorkflowConnectionV1): boolean =>
       delivered.has(edge.id) || prunedEdges.has(edge.id)
     const allResolved = (nodeId: string): boolean => incoming(nodeId).every(edgeResolved)
