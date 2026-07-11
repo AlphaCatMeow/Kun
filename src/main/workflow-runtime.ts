@@ -1485,27 +1485,6 @@ export class WorkflowRuntime {
       throw new Error(`Core workflow node adapter returned no outcome: ${node.type}`)
     }
     switch (node.type) {
-      case 'manual-trigger':
-      case 'schedule-trigger':
-      case 'webhook-trigger':
-        // Triggers emit the run's initial payload (e.g. a webhook request body).
-        return { payload, message: 'Triggered' }
-      case 'condition': {
-        const matched = evaluateCondition(node.config, payload, scope)
-        return { payload, message: matched ? 'true' : 'false', branch: matched ? 'true' : 'false' }
-      }
-      case 'switch': {
-        for (let index = 0; index < node.config.rules.length; index += 1) {
-          if (evaluateCondition(node.config.rules[index], payload, scope)) {
-            return { payload, message: `case ${index + 1}`, branch: `case-${index}` }
-          }
-        }
-        return {
-          payload,
-          message: node.config.fallback ? 'fallback' : 'no match',
-          branch: node.config.fallback ? 'fallback' : NO_BRANCH
-        }
-      }
       case 'code':
         return node.config.language === 'python' || node.config.language === 'bash'
           ? runCommandNode(node.config.language, node.config.code, payload)
@@ -1611,128 +1590,8 @@ export class WorkflowRuntime {
           message: `looped ${iterations}${done ? ' (done)' : ' (max)'}`
         }
       }
-      case 'merge': {
-        if (node.config.mode === 'object') {
-          const merged: Record<string, unknown> = {}
-          for (const input of inputs) {
-            if (input.json && typeof input.json === 'object' && !Array.isArray(input.json)) {
-              Object.assign(merged, input.json as Record<string, unknown>)
-            }
-          }
-          return { payload: { json: merged, text: safeJson(merged) }, message: `merged ${inputs.length}` }
-        }
-        const collected = inputs.map((input) => input.json)
-        return {
-          payload: { json: collected, text: inputs.map((input) => input.text).filter(Boolean).join('\n') },
-          message: `merged ${inputs.length}`
-        }
-      }
-      case 'set-fields': {
-        if (node.config.scope === 'run') {
-          // Write into run-scoped vars ({{$run.key}}); pass the incoming payload through unchanged.
-          for (const field of node.config.fields) {
-            const key = field.key.trim()
-            if (key) runVars[key] = interpolate(field.value, payload, scope)
-          }
-          return { payload, message: `set ${node.config.fields.length} run var(s)` }
-        }
-        const base =
-          node.config.keepIncoming && payload.json && typeof payload.json === 'object' && !Array.isArray(payload.json)
-            ? { ...(payload.json as Record<string, unknown>) }
-            : {}
-        for (const field of node.config.fields) {
-          if (field.key.trim()) base[field.key.trim()] = interpolate(field.value, payload, scope)
-        }
-        const json = base
-        return { payload: { json, text: safeJson(json) }, message: `${node.config.fields.length} fields` }
-      }
-      case 'filter': {
-        const pass = evaluateCondition(node.config, payload, scope)
-        return { payload, message: pass ? 'pass' : 'blocked', branch: pass ? undefined : NO_BRANCH }
-      }
-      case 'sort': {
-        const items = Array.isArray(payload.json) ? [...(payload.json as unknown[])] : []
-        const { field, order, numeric } = node.config
-        items.sort((a, b) => {
-          const av = field ? getByPath(a, field) : a
-          const bv = field ? getByPath(b, field) : b
-          const cmp = numeric
-            ? (Number(av) || 0) - (Number(bv) || 0)
-            : String(av ?? '').localeCompare(String(bv ?? ''))
-          return order === 'desc' ? -cmp : cmp
-        })
-        return { payload: { json: items, text: safeJson(items) }, message: `sorted ${items.length}` }
-      }
-      case 'limit': {
-        const items = Array.isArray(payload.json) ? (payload.json as unknown[]) : []
-        const out = node.config.from === 'last' ? items.slice(-node.config.count) : items.slice(0, node.config.count)
-        return { payload: { json: out, text: safeJson(out) }, message: `${out.length} items` }
-      }
-      case 'aggregate': {
-        const items = Array.isArray(payload.json) ? (payload.json as unknown[]) : []
-        const valueOf = (item: unknown): unknown => (node.config.field ? getByPath(item, node.config.field) : item)
-        if (node.config.mode === 'sum') {
-          const sum = items.reduce<number>((acc, item) => acc + (Number(valueOf(item)) || 0), 0)
-          return { payload: { json: { sum }, text: safeJson({ sum }) }, message: `sum ${sum}` }
-        }
-        if (node.config.mode === 'join') {
-          const text = items.map((item) => stringifyValue(valueOf(item))).join(node.config.separator || ', ')
-          return { payload: { json: { text }, text }, message: `joined ${items.length}` }
-        }
-        if (node.config.mode === 'collect') {
-          const values = items.map((item) => valueOf(item))
-          return { payload: { json: { values }, text: safeJson({ values }) }, message: `collected ${values.length}` }
-        }
-        return { payload: { json: { count: items.length }, text: safeJson({ count: items.length }) }, message: `count ${items.length}` }
-      }
       case 'http-request':
         return executeHttpWorkflowNode(node.config, payload, scope)
-      case 'delay':
-        await sleep(node.config.delayMs)
-        return { payload, message: `Waited ${node.config.delayMs}ms` }
-      case 'template': {
-        const rendered = interpolate(node.config.template, payload, scope)
-        if (node.config.outputMode === 'json') {
-          let parsed: unknown
-          let parsedOk = true
-          try {
-            parsed = JSON.parse(rendered)
-          } catch {
-            parsed = { text: rendered }
-            parsedOk = false
-          }
-          return { payload: { json: parsed, text: rendered }, message: parsedOk ? 'formatted' : 'formatted (text fallback)' }
-        }
-        return { payload: { json: { text: rendered }, text: rendered }, message: 'formatted' }
-      }
-      case 'json': {
-        if (node.config.mode === 'stringify') {
-          const text = safeJson(payload.json)
-          return { payload: { json: { text }, text }, message: 'stringified' }
-        }
-        try {
-          const parsed = JSON.parse(payload.text) as unknown
-          return { payload: { json: parsed, text: payload.text }, message: 'parsed' }
-        } catch (error) {
-          if (node.config.strict) {
-            throw new Error(`JSON parse failed: ${error instanceof Error ? error.message : String(error)}`)
-          }
-          return { payload: { json: { text: payload.text }, text: payload.text }, message: 'parse fallback' }
-        }
-      }
-      case 'output': {
-        if (node.config.mode === 'text') {
-          const text = interpolate(node.config.textTemplate, payload, scope)
-          return { payload: { json: { text }, text }, message: 'output' }
-        }
-        if (node.config.mode === 'json') {
-          const path = node.config.jsonPath.trim()
-          // A missing path resolves to undefined — coerce to null so the output is valid JSON.
-          const value = (path ? getByPath(payload.json, path) : payload.json) ?? null
-          return { payload: { json: value, text: safeJson(value) }, message: 'output' }
-        }
-        return { payload, message: 'output' }
-      }
       case 'human-approval': {
         // Pause the run until a decision arrives. Routes to the approved/rejected branch.
         // Note: the pending state is in-memory — an app restart mid-pause loses the run.
