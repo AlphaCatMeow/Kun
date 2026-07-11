@@ -142,8 +142,8 @@ class RoutedFailureModel implements ModelClient {
   }
 
   async *stream(_request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+    yield* [] as ModelStreamChunk[]
     throw new Error('upstream transport failed')
-    yield { kind: 'completed', stopReason: 'stop' }
   }
 }
 

@@ -45,6 +45,7 @@ class DeadlineAwareModel implements ModelClient {
   })
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+    yield* [] as ModelStreamChunk[]
     this.resolveStarted?.()
     if (!request.abortSignal.aborted) {
       await new Promise<void>((resolve) => {

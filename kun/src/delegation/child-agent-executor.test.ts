@@ -20,6 +20,7 @@ class AbortAwareModel implements ModelClient {
   private readonly streamStartedListeners: Array<() => void> = []
 
   async *stream(request: ModelRequest): AsyncIterable<ModelStreamChunk> {
+    yield* [] as ModelStreamChunk[]
     this.requests.push(request)
     for (const listener of this.streamStartedListeners.splice(0)) listener()
     if (!request.abortSignal.aborted) {

@@ -584,7 +584,6 @@ export function useWorkbenchComposerSubmitController({
   }, [
     activeClawChannelId,
     activeClawChannelModel,
-    activeClawChannelProviderId,
     activeSddDraft,
     activeThreadId,
     appendLocalClawTurn,
@@ -597,6 +596,7 @@ export function useWorkbenchComposerSubmitController({
     composerAttachments,
     composerFileReferences,
     composerMode,
+    composerModelGroups,
     composerReasoningEffort,
     getAttachmentScope,
     handleGuiPlanCommand,

@@ -282,16 +282,10 @@ export function SettingsView(): ReactElement {
   }, [formCursorSpotlight, formCursorSpotlightColor])
 
   // Live-preview the Write editor typography as the form changes, mirroring the
-  // theme/scale preview above. Keyed on the scalar fields so it only re-applies
-  // on real changes.
+  // theme/scale preview above.
   useEffect(() => {
     if (writeTypography) applyWriteTypography(writeTypography)
-  }, [
-    writeTypography?.fontPreset,
-    writeTypography?.customFontFamily,
-    writeTypography?.fontSizePx,
-    writeTypography?.lineHeight
-  ])
+  }, [writeTypography])
 
   useEffect(() => {
     const onSettingsChanged = (event: Event): void => {
