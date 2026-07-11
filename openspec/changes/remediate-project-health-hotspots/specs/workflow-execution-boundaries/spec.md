@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
 ### Requirement: Workflow run coordination
-Workflow graph planning, scheduling, run lifecycle, approvals, cancellation, and
-live status SHALL have explicit owners and one coordinator per run.
+One coordinator per run SHALL own workflow graph planning, scheduling, lifecycle,
+approvals, cancellation, and live status through explicit boundaries.
 
 #### Scenario: Cancellation during node execution
 - **WHEN** a workflow is cancelled while a node executor is awaiting I/O

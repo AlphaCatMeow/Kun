@@ -107,12 +107,12 @@
 
 ## 10. Final compatibility and health audit
 
-- [ ] 10.1 Run focused tests and build/typecheck after every extraction increment.
-- [ ] 10.2 Run the full Kun and root test suites, typechecks, lint, and production
+- [x] 10.1 Run focused tests and build/typecheck after every extraction increment.
+- [x] 10.2 Run the full Kun and root test suites, typechecks, lint, and production
   build, documenting unrelated concurrent failures separately.
-- [ ] 10.3 Compare public exports, HTTP/SSE schemas, provider wire transcripts, tool
+- [x] 10.3 Compare public exports, HTTP/SSE schemas, provider wire transcripts, tool
   schemas/cache prefix, persisted files, and saved settings against the baseline.
-- [ ] 10.4 Perform local runtime startup/health/shutdown and core Code/Design/Write/
+- [x] 10.4 Perform local runtime startup/health/shutdown and core Code/Design/Write/
   Connect smoke checks appropriate to the available environment.
-- [ ] 10.5 Confirm each former S/A hotspot has a narrow owner, no duplicated active
+- [x] 10.5 Confirm each former S/A hotspot has a narrow owner, no duplicated active
   path, adequate characterization coverage, and a documented remaining risk.

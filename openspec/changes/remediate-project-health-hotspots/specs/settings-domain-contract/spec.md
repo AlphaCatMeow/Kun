@@ -1,9 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: Canonical settings domain rules
-Settings types, defaults, normalization, legacy migration, provider capabilities,
-and saved shape SHALL be defined by shared domain owners consumed by main and
-renderer layers.
+Shared domain owners SHALL define settings types, defaults, normalization, legacy
+migration, provider capabilities, and saved shape for both main and renderer
+consumers.
 
 #### Scenario: Normalize legacy settings
 - **WHEN** an existing supported legacy settings document is loaded
