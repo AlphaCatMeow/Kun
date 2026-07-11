@@ -4,6 +4,9 @@ import type {
   ReviewEventPayload,
   RuntimeErrorEventPayload,
   RuntimeStatusEventPayload,
+  ChatBlock,
+  ThreadGoal,
+  ThreadTodoList,
   ThreadDeltaEvent,
   ThreadErrorOptions,
   ThreadEventSink,
@@ -40,6 +43,19 @@ export type RuntimeProjectionAction =
   | { type: 'todos_changed'; payload: TodoProjection }
   | { type: 'thread_metadata_changed'; payload: ThreadMetadataProjection }
   | { type: 'usage_received'; payload: ThreadUsageSnapshot }
+  | {
+      type: 'thread_snapshot_reconciled'
+      payload: {
+        threadId: string
+        blocks: ChatBlock[]
+        latestSeq: number
+        threadStatus?: string
+        goal?: ThreadGoal | null
+        todos?: ThreadTodoList | null
+        turnId?: string | null
+        userBlockId?: string | null
+      }
+    }
   | { type: 'turn_completed' }
   | { type: 'turn_failed'; error: Error; options?: ThreadErrorOptions }
 

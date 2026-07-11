@@ -33,10 +33,11 @@ describe('runtime projection action normalization', () => {
       timestamp: '2026-07-11T00:00:00.000Z',
       threadId: 'thread_1',
       goal: {
-        id: 'goal_1',
         threadId: 'thread_1',
         objective: 'Finish projection extraction',
         status: 'active',
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
         createdAt: '2026-07-11T00:00:00.000Z',
         updatedAt: '2026-07-11T00:00:00.000Z'
       }

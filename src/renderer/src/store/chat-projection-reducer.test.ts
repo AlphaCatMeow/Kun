@@ -20,7 +20,13 @@ const context = {
     const next = [...blocks]
     next[index] = block
     return next
-  }
+  },
+  formatRuntimeError: (error: unknown) => error instanceof Error ? error.message : String(error),
+  runtimeErrorDetail: () => '',
+  isInterruptSettledError: () => false,
+  settlePendingRuntimeWork: (blocks: ChatState['blocks']) => blocks,
+  threadSnapshotLooksRunning: () => false,
+  hasAssistantTextForCompletedTurn: () => false
 }
 
 function state(): ChatState {
@@ -93,5 +99,29 @@ describe('chat projection reducer', () => {
     }
     const projected = project(state(), [approval, input, approval, input])
     expect(projected.blocks).toHaveLength(2)
+  })
+
+  it('reconciles a persisted completion through the same projection reducer', () => {
+    const initial = {
+      ...state(),
+      busy: false,
+      currentTurnId: null,
+      lastSeq: 4,
+      liveAssistant: ''
+    }
+    const blocks = [{
+      kind: 'assistant' as const,
+      id: 'assistant_1',
+      createdAt: '2026-07-11T00:00:00.000Z',
+      text: 'Persisted answer'
+    }]
+    const projected = project(initial, [{
+      type: 'thread_snapshot_reconciled',
+      payload: { threadId: 'thread_1', blocks, latestSeq: 8 }
+    }])
+
+    expect(projected.blocks).toEqual(blocks)
+    expect(projected.lastSeq).toBe(8)
+    expect(projected.error).toBeNull()
   })
 })

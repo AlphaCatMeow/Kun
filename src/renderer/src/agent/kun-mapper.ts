@@ -733,9 +733,7 @@ function normalizeUserInputOption(option: unknown): UserInputQuestion['options']
   }
 }
 
-function userInputAnswersFromCore(
-  answers: CoreTurnItemJson['answers'] | CoreRuntimeEventJson['answers'] | undefined
-): UserInputAnswer[] | undefined {
+function userInputAnswersFromCore(answers: unknown): UserInputAnswer[] | undefined {
   if (!Array.isArray(answers)) return undefined
   const normalized = answers
     .map((answer) => normalizeUserInputAnswer(answer))

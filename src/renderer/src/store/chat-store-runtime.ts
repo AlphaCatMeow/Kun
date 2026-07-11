@@ -43,7 +43,17 @@ import { readThreadWorktreeRegistry, saveThreadWorktreeRegistry, forgetThreadWor
 import { notifySddChatTranscriptMirror } from '../sdd/sdd-chat-transcript'
 import { notifyDesignChatTranscriptMirror } from '../design/design-chat-transcript'
 import { useWriteWorkspaceStore } from '../write/write-workspace-store'
-import { reduceChatProjection } from './chat-projection-reducer'
+import {
+  mergeToolProjectionEvents,
+  reduceChatProjection,
+  toolBlockChildId,
+  toolEventChildId
+} from './chat-projection-reducer'
+import {
+  completionProjectionEffects,
+  terminalFailureProjectionEffects,
+  type ChatProjectionEffect
+} from './chat-projection-effects'
 import {
   armBusyWatchdog as armBusyWatchdogImpl,
   clearBusyWatchdog,
@@ -570,40 +580,6 @@ function upsertRuntimeErrorBlock(blocks: ChatBlock[], block: Extract<ChatBlock, 
   return next
 }
 
-function childIdFromToolBlock(block: ToolBlock): string | undefined {
-  const child = block.meta?.child
-  if (child && typeof child === 'object') {
-    const id = (child as Record<string, unknown>).childId
-    if (typeof id === 'string' && id.trim()) return id.trim()
-  }
-  if (!block.detail?.trim()) return undefined
-  try {
-    const parsed = JSON.parse(block.detail) as unknown
-    if (!parsed || typeof parsed !== 'object') return undefined
-    const id = (parsed as Record<string, unknown>).childId
-    return typeof id === 'string' && id.trim() ? id.trim() : undefined
-  } catch {
-    return undefined
-  }
-}
-
-function childIdFromToolEvent(event: ToolEventPayload): string | undefined {
-  const child = event.meta?.child
-  if (child && typeof child === 'object') {
-    const id = (child as Record<string, unknown>).childId
-    if (typeof id === 'string' && id.trim()) return id.trim()
-  }
-  if (!event.detail?.trim()) return undefined
-  try {
-    const parsed = JSON.parse(event.detail) as unknown
-    if (!parsed || typeof parsed !== 'object') return undefined
-    const id = (parsed as Record<string, unknown>).childId
-    return typeof id === 'string' && id.trim() ? id.trim() : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function eventDetailRecord(event: ToolEventPayload): Record<string, unknown> | undefined {
   if (!event.detail?.trim()) return undefined
   try {
@@ -620,25 +596,6 @@ function isDetachedSubagentToolEvent(event: ToolEventPayload): boolean {
     return true
   }
   return eventDetailRecord(event)?.detached === true
-}
-
-function mergeToolMeta(current: ToolBlock['meta'], incoming: ToolEventPayload['meta']): ToolBlock['meta'] {
-  if (!incoming) return current
-  if (!current) return incoming
-  const currentChild = current.child
-  const incomingChild = incoming.child
-  return {
-    ...current,
-    ...incoming,
-    ...(currentChild || incomingChild
-      ? {
-          child: {
-            ...(currentChild && typeof currentChild === 'object' ? currentChild : {}),
-            ...(incomingChild && typeof incomingChild === 'object' ? incomingChild : {})
-          }
-        }
-      : {})
-  }
 }
 
 export function armBusyWatchdog(
@@ -761,24 +718,32 @@ async function reconcileCompletedTurnFromThreadDetail(input: {
       ) || detail.latestSeq > input.get().lastSeq
     if (!hasPersistedCompletion) return
 
-    input.set((state) => {
-      if (state.activeThreadId !== threadId) return {}
-      if (state.busy) return {}
-      if (state.currentTurnId && state.currentTurnId !== input.turnId) return {}
-      if (hasAssistantTextForCompletedTurn(state, input.turnId, input.userBlockId)) return {}
-
-      const busy = threadSnapshotLooksRunning(loaded, detail.threadStatus)
-      const blocks = busy ? loaded : settlePendingRuntimeWorkAfterInterrupt(loaded)
-      return {
-        blocks,
-        lastSeq: Math.max(state.lastSeq, detail.latestSeq),
-        liveReasoning: '',
-        liveAssistant: '',
-        activeThreadGoal: detail.goal ?? state.activeThreadGoal,
-        activeThreadTodos: detail.todos ?? state.activeThreadTodos,
-        error: clearRuntimeStreamRecoveringError(state.error)
+    input.set((state) => reduceChatProjection(state, {
+      type: 'thread_snapshot_reconciled',
+      payload: {
+        threadId,
+        blocks: loaded,
+        latestSeq: detail.latestSeq,
+        threadStatus: detail.threadStatus,
+        goal: detail.goal,
+        todos: detail.todos,
+        turnId: input.turnId,
+        userBlockId: input.userBlockId
       }
-    })
+    }, {
+      now: Date.now(),
+      clearRecoveringError: clearRuntimeStreamRecoveringError,
+      goalTimelineText,
+      runtimeStatusText,
+      runtimeErrorView: (event) => describeRuntimeError(runtimeErrorPayloadToError(event)),
+      upsertRuntimeError: upsertRuntimeErrorBlock,
+      formatRuntimeError,
+      runtimeErrorDetail,
+      isInterruptSettledError,
+      settlePendingRuntimeWork: settlePendingRuntimeWorkAfterInterrupt,
+      threadSnapshotLooksRunning,
+      hasAssistantTextForCompletedTurn
+    }))
   } catch (error) {
     if (typeof window === 'undefined') return
     void window.kunGui?.logError?.('turn-completion-reconcile', 'Failed to reconcile completed turn', {
@@ -807,8 +772,63 @@ export function buildThreadEventSink(
       goalTimelineText,
       runtimeStatusText,
       runtimeErrorView: (event) => describeRuntimeError(runtimeErrorPayloadToError(event)),
-      upsertRuntimeError: upsertRuntimeErrorBlock
+      upsertRuntimeError: upsertRuntimeErrorBlock,
+      formatRuntimeError,
+      runtimeErrorDetail,
+      isInterruptSettledError,
+      settlePendingRuntimeWork: settlePendingRuntimeWorkAfterInterrupt,
+      threadSnapshotLooksRunning,
+      hasAssistantTextForCompletedTurn
     })
+  const runEffects = (effects: readonly ChatProjectionEffect[]): void => {
+    for (const effect of effects) {
+      switch (effect.type) {
+        case 'arm_stream_watchdog':
+          armBusyWatchdog(set, get)
+          break
+        case 'refresh_write_workspace':
+          notifyWriteWorkspaceFileRefresh(get, effect.event)
+          break
+        case 'mirror_claw_reply':
+          if (typeof window.kunGui?.mirrorClawChannelMessage === 'function') {
+            void window.kunGui.mirrorClawChannelMessage(effect.threadId, effect.text, 'assistant')
+              .catch(() => undefined)
+          }
+          break
+        case 'notify_turn_complete':
+          notifyTurnComplete(effect.threadId, effect.state, effect.dedupeKey)
+          break
+        case 'mirror_sdd_transcript':
+          notifySddChatTranscriptMirror(get)
+          break
+        case 'mirror_design_transcript':
+          notifyDesignChatTranscriptMirror(get)
+          break
+        case 'sync_completion_poll':
+          syncTurnCompletionPoll(set, get)
+          break
+        case 'reload_completed_turn':
+          void reconcileCompletedTurnFromThreadDetail({
+            threadId: effect.threadId,
+            turnId: effect.turnId,
+            userBlockId: effect.userBlockId,
+            loadThreadDetail,
+            set,
+            get
+          })
+          break
+        case 'refresh_threads':
+          void get().refreshThreads?.()
+          break
+        case 'release_worktree':
+          releaseThreadWorktreeIfNeeded(effect.threadId)
+          break
+        case 'drain_queued_messages':
+          void get().drainQueuedMessages?.()
+          break
+      }
+    }
+  }
 
   return {
     onSeq: (seq) => {
@@ -831,55 +851,12 @@ export function buildThreadEventSink(
         error: clearRuntimeStreamRecoveringError(s.error)
       }))
     },
-    onUserMessage: (ev) =>
-      set((s) => {
-        if (!isCurrentStream()) return {}
-        resetBusyRecoveryAttempts()
-        const flushed = flushLiveBlocks(s)
-        const baseBlocks = flushed.blocks ?? s.blocks
-        const optimisticCurrentUserId = s.currentTurnUserId
-        const isBackgroundShellNotice = isBackgroundShellNoticeUserMessage({
-          text: ev.text,
-          meta: ev.meta
-        })
-        const canReconcileOptimisticUser =
-          !isBackgroundShellNotice &&
-          optimisticCurrentUserId &&
-          optimisticCurrentUserId !== ev.itemId &&
-          isOptimisticUserBlockId(optimisticCurrentUserId) &&
-          baseBlocks.some((block) => block.kind === 'user' && block.id === optimisticCurrentUserId)
-        const reconciledBlocks = canReconcileOptimisticUser
-          ? reconcileOptimisticUserBlock(
-              baseBlocks,
-              optimisticCurrentUserId,
-              ev.itemId,
-              ev.text,
-              ev.modelLabel
-            )
-          : baseBlocks
-        const nextBlocks = upsertUserBlock(reconciledBlocks, ev)
-        const startedAt = runtimeEventStartedAt(ev.createdAt)
-        armBusyWatchdog(set, get)
-        const nextCurrentTurnUserId = isBackgroundShellNotice
-          ? optimisticCurrentUserId
-          : canReconcileOptimisticUser || !optimisticCurrentUserId
-            ? ev.itemId
-            : optimisticCurrentUserId
-        return {
-          ...flushed,
-          blocks: nextBlocks,
-          busy: true,
-          currentTurnId: ev.turnId ?? s.currentTurnId,
-          currentTurnUserId: nextCurrentTurnUserId,
-          turnStartedAtByUserId: isBackgroundShellNotice
-            ? s.turnStartedAtByUserId
-            : {
-                ...s.turnStartedAtByUserId,
-                [ev.itemId]: s.turnStartedAtByUserId[ev.itemId] ?? startedAt
-              },
-          error: clearRuntimeStreamRecoveringError(s.error)
-        }
-      }),
+    onUserMessage: (event) => {
+      if (!isCurrentStream()) return
+      resetBusyRecoveryAttempts()
+      armBusyWatchdog(set, get)
+      set((state) => reduce(state, { type: 'user_message_received', payload: event }))
+    },
     onDeltas: (rawDeltas) => {
       if (!isCurrentStream()) return
       const deltas: typeof rawDeltas = []
@@ -895,83 +872,34 @@ export function buildThreadEventSink(
       if (!get().busy) armBusyWatchdog(set, get)
       set((state) => reduce(state, { type: 'deltas_received', deltas }))
     },
-    onTool: (ev) => {
+    onTool: (event) => {
       if (!isCurrentStream()) return
-      notifyWriteWorkspaceFileRefresh(get, ev)
-      set((s) => {
-        resetBusyRecoveryAttempts()
-        // Restore busy state on tool events (same reasoning as onDelta).
-        const base: Partial<ChatState> = {}
-        if (!s.busy && !ev.updateOnly && !isDetachedSubagentToolEvent(ev)) {
-          base.busy = true
-          armBusyWatchdog(set, get)
+      runEffects([{ type: 'refresh_write_workspace', event }])
+      resetBusyRecoveryAttempts()
+      if (!get().busy && !event.updateOnly && !isDetachedSubagentToolEvent(event)) {
+        armBusyWatchdog(set, get)
+      }
+      set((state) => {
+        const eventChildId = toolEventChildId(event)
+        const existing = state.blocks.some((block) =>
+          block.kind === 'tool' && (
+            block.id === event.itemId ||
+            Boolean(eventChildId && toolBlockChildId(block) === eventChildId)
+          )
+        )
+        if (!existing && event.updateOnly) {
+          if (eventChildId) pendingChildToolUpdates.set(eventChildId, event)
+          return {}
         }
-        const eventChildId = childIdFromToolEvent(ev)
-        const idx = s.blocks.findIndex((b) => {
-          if (b.kind !== 'tool') return false
-          if (b.id === ev.itemId) return true
-          return Boolean(eventChildId && childIdFromToolBlock(b) === eventChildId)
-        })
-        if (idx >= 0) {
-          const cur = s.blocks[idx]
-          if (cur.kind !== 'tool') return { ...base }
-          const next: ToolBlock = {
-            ...cur,
-            summary: ev.summary || cur.summary,
-            status: ev.status,
-            toolKind: ev.toolKind ?? cur.toolKind,
-            detail: ev.detail ?? cur.detail,
-            filePath: ev.filePath ?? cur.filePath,
-            meta: mergeToolMeta(cur.meta, ev.meta)
-          }
-          const blocks = [...s.blocks]
-          blocks[idx] = next
-          return {
-            ...base,
-            blocks,
-            error: clearRuntimeStreamRecoveringError(s.error)
+        let projectedEvent = event
+        if (!existing && eventChildId) {
+          const pending = pendingChildToolUpdates.get(eventChildId)
+          if (pending) {
+            pendingChildToolUpdates.delete(eventChildId)
+            projectedEvent = mergeToolProjectionEvents(event, pending)
           }
         }
-        if (ev.updateOnly) {
-          if (eventChildId) pendingChildToolUpdates.set(eventChildId, ev)
-          return { ...base }
-        }
-        // New tool — flush pending live reasoning/assistant first so each
-        // reasoning segment becomes its own timeline block in chronological
-        // order, rather than collapsing into one giant trailing block.
-        const flushed = flushLiveBlocks(s)
-        const baseBlocks = flushed.blocks ?? s.blocks
-        const block: ToolBlock = {
-          kind: 'tool',
-          id: ev.itemId,
-          createdAt: ev.createdAt ?? new Date().toISOString(),
-          summary: ev.summary,
-          status: ev.status,
-          toolKind: ev.toolKind,
-          detail: ev.detail,
-          filePath: ev.filePath,
-          meta: ev.meta
-        }
-        const blockChildId = childIdFromToolBlock(block)
-        const pendingChildUpdate = blockChildId ? pendingChildToolUpdates.get(blockChildId) : undefined
-        if (blockChildId && pendingChildUpdate) pendingChildToolUpdates.delete(blockChildId)
-        const mergedBlock: ToolBlock = pendingChildUpdate
-          ? {
-              ...block,
-              summary: pendingChildUpdate.summary || block.summary,
-              status: pendingChildUpdate.status,
-              toolKind: pendingChildUpdate.toolKind ?? block.toolKind,
-              detail: pendingChildUpdate.detail ?? block.detail,
-              filePath: pendingChildUpdate.filePath ?? block.filePath,
-              meta: mergeToolMeta(block.meta, pendingChildUpdate.meta)
-            }
-          : block
-        return {
-          ...base,
-          ...flushed,
-          blocks: [...baseBlocks, mergedBlock],
-          error: clearRuntimeStreamRecoveringError(s.error)
-        }
+        return reduce(state, { type: 'tool_updated', payload: projectedEvent })
       })
     },
     onCompaction: (event) => {
@@ -1059,106 +987,41 @@ export function buildThreadEventSink(
               completedState.liveAssistant
             )
           : ''
-      set((s) => {
-        const base = flushLiveBlocks(s, {
-          ...finalizeTurnTiming(s),
-          error: null,
-          currentTurnId: null
-        })
-        if (s.busy) base.busy = false
-        const id = s.activeThreadId
-        if (id) {
-          const w = { ...s.watchTurnCompletion }
-          delete w[id]
-          clearWatchedCompletionNotification(id)
-          base.watchTurnCompletion = w
-          const u = { ...s.unreadThreadIds }
-          delete u[id]
-          base.unreadThreadIds = u
-        }
-        return base
-      })
-      if (pendingMirror && assistantMirrorText && typeof window.kunGui?.mirrorClawChannelMessage === 'function') {
-        void window.kunGui.mirrorClawChannelMessage(
-          pendingMirror.threadId,
-          assistantMirrorText,
-          'assistant'
-        ).catch(() => undefined)
-      }
-      notifyTurnComplete(completedThreadId, completedState, completedKey)
-      notifyWriteWorkspaceFileRefresh(get)
-      notifySddChatTranscriptMirror(get)
-      notifyDesignChatTranscriptMirror(get)
-      syncTurnCompletionPoll(set, get)
-      if (shouldReconcileCompletion) {
-        void reconcileCompletedTurnFromThreadDetail({
-          threadId: completedThreadId,
-          turnId: completedTurnId,
-          userBlockId: completedUserBlockId,
-          loadThreadDetail,
-          set,
-          get
-        })
-      }
-      void get().refreshThreads()
-      // Release worktree when the turn finishes and there are no queued
-      // follow-ups that would start a new turn in the same thread.
-      if (get().queuedMessages.length === 0) {
-        releaseThreadWorktreeIfNeeded(completedThreadId)
-      }
-      void get().drainQueuedMessages()
+      set((state) => reduce(state, { type: 'turn_completed' }))
+      if (completedThreadId) clearWatchedCompletionNotification(completedThreadId)
+      runEffects(completionProjectionEffects({
+        state: completedState,
+        threadId: completedThreadId,
+        turnId: completedTurnId,
+        userBlockId: completedUserBlockId,
+        dedupeKey: completedKey,
+        mirrorText: pendingMirror && assistantMirrorText ? assistantMirrorText : undefined,
+        mirrorThreadId: pendingMirror?.threadId,
+        reconcile: shouldReconcileCompletion,
+        releaseWorktree: get().queuedMessages.length === 0
+      }))
     },
     onError: (err, options) => {
       if (!isCurrentStream()) return
       resetBusyRecoveryAttempts()
       clearBusyWatchdog()
       const state = get()
-      const message = formatRuntimeError(err)
-      const detail = runtimeErrorDetail(err)
       const terminal = options?.terminal === true
-      const interrupted = isInterruptSettledError(err, message)
       takePendingClawFeishuMirror(state.currentTurnId)
-      set((s) => {
-        const wasBusy = s.busy
-        const shouldSettleTurn = terminal || !wasBusy || interrupted
-        const out = flushLiveBlocks(s, {
-          ...finalizeTurnTiming(s),
-          error: interrupted ? null : message,
-          runtimeErrorDetail: interrupted ? null : detail || null
-        })
-        // Keep the busy flag if the turn was active — the interrupt button
-        // should stay visible so the user can interrupt a stuck turn. The
-        // watchdog (re-armed below) will eventually time out if the turn
-        // never recovers.
-        if (shouldSettleTurn) {
-          out.busy = false
-          out.currentTurnId = null
-          out.currentTurnUserId = null
-          out.blocks = settlePendingRuntimeWorkAfterInterrupt(out.blocks ?? s.blocks)
-          if (terminal && s.activeThreadId) {
-            const w = { ...s.watchTurnCompletion }
-            delete w[s.activeThreadId]
-            clearWatchedCompletionNotification(s.activeThreadId)
-            out.watchTurnCompletion = w
-            const u = { ...s.unreadThreadIds }
-            delete u[s.activeThreadId]
-            out.unreadThreadIds = u
-          }
-        }
-        return out
-      })
+      set((current) => reduce(current, { type: 'turn_failed', error: err, options }))
+      if (terminal && state.activeThreadId) {
+        clearWatchedCompletionNotification(state.activeThreadId)
+      }
       if (terminal) {
-        syncTurnCompletionPoll(set, get)
-        void get().refreshThreads?.()
-        if (get().queuedMessages.length === 0) {
-          releaseThreadWorktreeIfNeeded(state.activeThreadId)
-        }
-        void get().drainQueuedMessages?.()
+        runEffects(terminalFailureProjectionEffects(
+          state.activeThreadId,
+          get().queuedMessages.length === 0
+        ))
         return
       }
       // Re-arm the watchdog so a stuck SSE stream doesn't leave the UI
       // permanently in the busy state.
-      if (get().busy) armBusyWatchdog(set, get)
+      if (get().busy) runEffects([{ type: 'arm_stream_watchdog' }])
     },
     onUsage: (usage) => {
       if (!isCurrentStream()) return

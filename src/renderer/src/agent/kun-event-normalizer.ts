@@ -57,6 +57,8 @@ export function normalizeKunTurnItem(
       return { type: 'review_updated', payload: deps.review(item) }
     case 'error':
       return { type: 'runtime_error_received', payload: deps.itemRuntimeError(item) }
+    default:
+      return null
   }
 }
 

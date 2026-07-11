@@ -1,6 +1,18 @@
-import type { ChatBlock, RuntimeErrorEventPayload, RuntimeStatusEventPayload } from '../agent/types'
+import type {
+  ChatBlock,
+  RuntimeErrorEventPayload,
+  RuntimeStatusEventPayload,
+  ToolBlock,
+  ToolEventPayload
+} from '../agent/types'
 import type { RuntimeProjectionAction } from '../agent/runtime-projection-actions'
+import { isBackgroundShellNoticeUserMessage } from '@shared/background-shell-notice'
 import type { ChatState } from './chat-store-types'
+import {
+  isOptimisticUserBlockId,
+  reconcileOptimisticUserBlock,
+  upsertUserBlock
+} from './chat-store-runtime-helpers'
 
 export type ChatProjectionReducerContext = {
   now: number
@@ -16,6 +28,16 @@ export type ChatProjectionReducerContext = {
     blocks: ChatBlock[],
     block: Extract<ChatBlock, { kind: 'system' }>
   ) => ChatBlock[]
+  formatRuntimeError: (error: unknown) => string
+  runtimeErrorDetail: (error: unknown) => string
+  isInterruptSettledError: (error: unknown, message: string) => boolean
+  settlePendingRuntimeWork: (blocks: ChatBlock[]) => ChatBlock[]
+  threadSnapshotLooksRunning: (blocks: ChatBlock[], threadStatus?: string) => boolean
+  hasAssistantTextForCompletedTurn: (
+    state: Pick<ChatState, 'blocks' | 'liveAssistant'>,
+    turnId?: string | null,
+    userBlockId?: string | null
+  ) => boolean
 }
 
 export function flushLiveProjection(
@@ -42,6 +64,49 @@ export function reduceChatProjection(
   context: ChatProjectionReducerContext
 ): Partial<ChatState> {
   switch (action.type) {
+    case 'user_message_received': {
+      const event = action.payload
+      const flushed = flushLiveProjection(state, context.now)
+      const baseBlocks = flushed.blocks ?? state.blocks
+      const optimisticUserId = state.currentTurnUserId
+      const backgroundNotice = isBackgroundShellNoticeUserMessage({ text: event.text, meta: event.meta })
+      const reconcileOptimistic = Boolean(
+        !backgroundNotice &&
+        optimisticUserId &&
+        optimisticUserId !== event.itemId &&
+        isOptimisticUserBlockId(optimisticUserId) &&
+        baseBlocks.some((block) => block.kind === 'user' && block.id === optimisticUserId)
+      )
+      const reconciledBlocks = reconcileOptimistic && optimisticUserId
+        ? reconcileOptimisticUserBlock(
+            baseBlocks,
+            optimisticUserId,
+            event.itemId,
+            event.text,
+            event.modelLabel
+          )
+        : baseBlocks
+      const currentTurnUserId = backgroundNotice
+        ? optimisticUserId
+        : reconcileOptimistic || !optimisticUserId
+          ? event.itemId
+          : optimisticUserId
+      const startedAt = runtimeEventStartedAt(event.createdAt, context.now)
+      return {
+        ...flushed,
+        blocks: upsertUserBlock(reconciledBlocks, event),
+        busy: true,
+        currentTurnId: event.turnId ?? state.currentTurnId,
+        currentTurnUserId,
+        turnStartedAtByUserId: backgroundNotice
+          ? state.turnStartedAtByUserId
+          : {
+              ...state.turnStartedAtByUserId,
+              [event.itemId]: state.turnStartedAtByUserId[event.itemId] ?? startedAt
+            },
+        error: context.clearRecoveringError(state.error)
+      }
+    }
     case 'deltas_received': {
       const deltas = action.deltas
       if (deltas.length === 0) return {}
@@ -89,6 +154,54 @@ export function reduceChatProjection(
         ...(reasoningLast !== state.turnReasoningLastAtByUserId
           ? { turnReasoningLastAtByUserId: reasoningLast }
           : {})
+      }
+    }
+    case 'tool_updated': {
+      const event = action.payload
+      const base: Partial<ChatState> =
+        !state.busy && !event.updateOnly && !isDetachedSubagentToolEvent(event)
+          ? { busy: true }
+          : {}
+      const childId = toolEventChildId(event)
+      const index = state.blocks.findIndex((block) =>
+        block.kind === 'tool' && (
+          block.id === event.itemId || Boolean(childId && toolBlockChildId(block) === childId)
+        )
+      )
+      if (index >= 0) {
+        const current = state.blocks[index]
+        if (current.kind !== 'tool') return base
+        const blocks = [...state.blocks]
+        blocks[index] = {
+          ...current,
+          summary: event.summary || current.summary,
+          status: event.status,
+          toolKind: event.toolKind ?? current.toolKind,
+          detail: event.detail ?? current.detail,
+          filePath: event.filePath ?? current.filePath,
+          meta: mergeToolProjectionMeta(current.meta, event.meta)
+        }
+        return { ...base, blocks, error: context.clearRecoveringError(state.error) }
+      }
+      if (event.updateOnly) return base
+      const flushed = flushLiveProjection(state, context.now)
+      const baseBlocks = flushed.blocks ?? state.blocks
+      const block: ToolBlock = {
+        kind: 'tool',
+        id: event.itemId,
+        createdAt: event.createdAt ?? new Date(context.now).toISOString(),
+        summary: event.summary,
+        status: event.status,
+        toolKind: event.toolKind,
+        detail: event.detail,
+        filePath: event.filePath,
+        meta: event.meta
+      }
+      return {
+        ...base,
+        ...flushed,
+        blocks: [...baseBlocks, block],
+        error: context.clearRecoveringError(state.error)
       }
     }
     case 'approval_received': {
@@ -343,8 +456,166 @@ export function reduceChatProjection(
         usageRefreshKey: state.usageRefreshKey + 1,
         lastTurnUsage: { threadId: state.activeThreadId ?? '', snapshot: action.payload }
       }
+    case 'thread_snapshot_reconciled': {
+      const snapshot = action.payload
+      if (state.activeThreadId !== snapshot.threadId || state.busy) return {}
+      if (state.currentTurnId && state.currentTurnId !== snapshot.turnId) return {}
+      if (context.hasAssistantTextForCompletedTurn(state, snapshot.turnId, snapshot.userBlockId)) {
+        return {}
+      }
+      const busy = context.threadSnapshotLooksRunning(snapshot.blocks, snapshot.threadStatus)
+      return {
+        blocks: busy ? snapshot.blocks : context.settlePendingRuntimeWork(snapshot.blocks),
+        lastSeq: Math.max(state.lastSeq, snapshot.latestSeq),
+        liveReasoning: '',
+        liveAssistant: '',
+        activeThreadGoal: snapshot.goal ?? state.activeThreadGoal,
+        activeThreadTodos: snapshot.todos ?? state.activeThreadTodos,
+        error: context.clearRecoveringError(state.error)
+      }
+    }
+    case 'turn_completed': {
+      if (!state.busy && !state.currentTurnId) return {}
+      const patch = flushLiveProjection(state, context.now, {
+        ...finalizeTurnTimingAt(state, context.now),
+        error: null,
+        currentTurnId: null,
+        ...(state.busy ? { busy: false } : {})
+      })
+      const threadId = state.activeThreadId
+      if (!threadId) return patch
+      const watchTurnCompletion = { ...state.watchTurnCompletion }
+      const unreadThreadIds = { ...state.unreadThreadIds }
+      delete watchTurnCompletion[threadId]
+      delete unreadThreadIds[threadId]
+      return { ...patch, watchTurnCompletion, unreadThreadIds }
+    }
+    case 'turn_failed': {
+      const message = context.formatRuntimeError(action.error)
+      const detail = context.runtimeErrorDetail(action.error)
+      const terminal = action.options?.terminal === true
+      const interrupted = context.isInterruptSettledError(action.error, message)
+      const shouldSettle = terminal || !state.busy || interrupted
+      const patch = flushLiveProjection(state, context.now, {
+        ...finalizeTurnTimingAt(state, context.now),
+        error: interrupted ? null : message,
+        runtimeErrorDetail: interrupted ? null : detail || null
+      })
+      if (!shouldSettle) return patch
+      patch.busy = false
+      patch.currentTurnId = null
+      patch.currentTurnUserId = null
+      patch.blocks = context.settlePendingRuntimeWork(patch.blocks ?? state.blocks)
+      if (terminal && state.activeThreadId) {
+        const watchTurnCompletion = { ...state.watchTurnCompletion }
+        const unreadThreadIds = { ...state.unreadThreadIds }
+        delete watchTurnCompletion[state.activeThreadId]
+        delete unreadThreadIds[state.activeThreadId]
+        patch.watchTurnCompletion = watchTurnCompletion
+        patch.unreadThreadIds = unreadThreadIds
+      }
+      return patch
+    }
     default:
       return {}
+  }
+}
+
+function runtimeEventStartedAt(createdAt: string | undefined, now: number): number {
+  if (!createdAt) return now
+  const parsed = Date.parse(createdAt)
+  if (!Number.isFinite(parsed)) return now
+  const maxPastAgeMs = 30 * 60_000
+  const maxFutureSkewMs = 5_000
+  return parsed < now - maxPastAgeMs || parsed > now + maxFutureSkewMs ? now : parsed
+}
+
+function finalizeTurnTimingAt(state: ChatState, now: number): Partial<ChatState> {
+  const userId = state.currentTurnUserId
+  if (!userId) return {}
+  const startedAt = state.turnStartedAtByUserId[userId]
+  if (typeof startedAt !== 'number') return { currentTurnUserId: null }
+  return {
+    currentTurnUserId: null,
+    turnDurationByUserId: {
+      ...state.turnDurationByUserId,
+      [userId]: Math.max(0, now - startedAt)
+    }
+  }
+}
+
+export function toolBlockChildId(block: ToolBlock): string | undefined {
+  const child = block.meta?.child
+  if (child && typeof child === 'object' && !Array.isArray(child)) {
+    const nested = (child as Record<string, unknown>).childId
+    if (typeof nested === 'string' && nested.trim()) return nested.trim()
+  }
+  return childIdFromDetail(block.detail)
+}
+
+export function toolEventChildId(event: ToolEventPayload): string | undefined {
+  const child = event.meta?.child
+  if (child && typeof child === 'object' && !Array.isArray(child)) {
+    const nested = (child as Record<string, unknown>).childId
+    if (typeof nested === 'string' && nested.trim()) return nested.trim()
+  }
+  return childIdFromDetail(event.detail)
+}
+
+export function mergeToolProjectionEvents(
+  base: ToolEventPayload,
+  update: ToolEventPayload
+): ToolEventPayload {
+  return {
+    ...base,
+    summary: update.summary || base.summary,
+    status: update.status,
+    toolKind: update.toolKind ?? base.toolKind,
+    detail: update.detail ?? base.detail,
+    filePath: update.filePath ?? base.filePath,
+    meta: mergeToolProjectionMeta(base.meta, update.meta)
+  }
+}
+
+function mergeToolProjectionMeta(
+  current: ToolBlock['meta'],
+  incoming: ToolEventPayload['meta']
+): ToolBlock['meta'] {
+  if (!current) return incoming
+  if (!incoming) return current
+  const merged = { ...current, ...incoming }
+  const currentChild = current.child
+  const incomingChild = incoming.child
+  if (
+    currentChild && typeof currentChild === 'object' && !Array.isArray(currentChild) &&
+    incomingChild && typeof incomingChild === 'object' && !Array.isArray(incomingChild)
+  ) {
+    merged.child = { ...currentChild, ...incomingChild }
+  }
+  return merged
+}
+
+function isDetachedSubagentToolEvent(event: ToolEventPayload): boolean {
+  const child = event.meta?.child
+  if (child && typeof child === 'object' && !Array.isArray(child) &&
+    (child as Record<string, unknown>).detached === true) return true
+  return detailRecord(event.detail)?.detached === true
+}
+
+function childIdFromDetail(detail: string | undefined): string | undefined {
+  const id = detailRecord(detail)?.childId
+  return typeof id === 'string' && id.trim() ? id.trim() : undefined
+}
+
+function detailRecord(detail: string | undefined): Record<string, unknown> | undefined {
+  if (!detail?.trim()) return undefined
+  try {
+    const parsed = JSON.parse(detail) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined
+  } catch {
+    return undefined
   }
 }
 
