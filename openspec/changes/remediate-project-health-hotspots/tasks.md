@@ -78,7 +78,7 @@
 - [x] 7.3 Extract thread document/legacy readers and recovery precedence.
 - [x] 7.4 Extract thread projection assembler and turn/item merge rules.
 - [x] 7.5 Extract backfill coordination and lifecycle/error reporting.
-- [ ] 7.6 Reduce `HybridThreadStore` to the `ThreadStore` facade and prove persisted
+- [x] 7.6 Reduce `HybridThreadStore` to the `ThreadStore` facade and prove persisted
   schema and files remain unchanged.
 
 ## 8. Workbench UI composition
