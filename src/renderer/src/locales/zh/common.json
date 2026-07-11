@@ -2720,7 +2720,7 @@
     "permScopeAll": "全部",
     "permScopeCustom": "自定义",
     "permScopeHint": "选择该 agent 可调用的能力，上限不超过主代理。",
-    "permScopeReadOnlyNote": "仅调查类工具:read / grep / find / ls，无 MCP 与技能。",
+    "permScopeReadOnlyNote": "仅调查类工具:read / grep / find / ls / repo_map，无 MCP 与技能。",
     "permScopeAllNote": "继承主代理的全部能力。",
     "permSearch": "搜索工具 / MCP / 技能…",
     "permSecTools": "内置工具",

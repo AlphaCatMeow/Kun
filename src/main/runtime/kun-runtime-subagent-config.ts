@@ -3,13 +3,24 @@ import { SubagentsCapabilityConfig } from '../../../kun/src/contracts/capabiliti
 import { appendManagedLogLine } from '../logger'
 
 const VALID_PROFILE_REASONING = new Set(['auto', 'low', 'medium', 'high', 'max'])
+const BUILTIN_SUBAGENT_PROFILE_IDS = new Set([
+  'general',
+  'explore',
+  'design-reviewer',
+  'over-engineering-reviewer'
+])
 
 export function subagentProfilesForRuntime(
   subagents: KunSubagentsSettingsV1
 ): SubagentsCapabilityConfig {
   const profiles: Record<string, unknown> = {}
   for (const profile of subagents.profiles) {
-    if (!profile.enabled) continue
+    // Kun installs first-party profiles at composition time, so omitting a
+    // disabled builtin only adds the default profile back and silently loses
+    // the user's model/prompt/permission overrides. Older GUI versions exposed
+    // that ineffective toggle. Treat its stored false as a legacy no-op while
+    // continuing to exclude genuinely disabled custom profiles.
+    if (!profile.enabled && !BUILTIN_SUBAGENT_PROFILE_IDS.has(profile.id)) continue
     const { id: _id, enabled: _enabled, name, reasoningEffort, ...rest } = profile
     const effort = typeof reasoningEffort === 'string' && VALID_PROFILE_REASONING.has(reasoningEffort)
       ? { reasoningEffort }

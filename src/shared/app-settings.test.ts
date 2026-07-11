@@ -662,6 +662,55 @@ describe('mergeKunRuntimeSettings', () => {
     expect(next.baseUrl).toBe(current.baseUrl)
   })
 
+  it('deep-merges subagent settings while replacing an explicit profiles roster', () => {
+    const current = {
+      ...defaultKunRuntimeSettings(),
+      subagents: {
+        enabled: true,
+        maxParallel: 3,
+        maxChildRuns: 12,
+        defaultToolPolicy: 'inherit' as const,
+        defaultProfile: 'researcher',
+        profiles: [{
+          id: 'researcher',
+          enabled: true,
+          name: 'Researcher',
+          mode: 'subagent' as const,
+          toolPolicy: 'readOnly' as const
+        }]
+      }
+    }
+
+    const limitsChanged = mergeKunRuntimeSettings(current, {
+      subagents: { maxParallel: 5 }
+    })
+    expect(limitsChanged.subagents).toEqual({
+      ...current.subagents,
+      maxParallel: 5
+    })
+
+    const rosterCleared = mergeKunRuntimeSettings(limitsChanged, {
+      subagents: { profiles: [] }
+    })
+    expect(rosterCleared.subagents).toEqual({
+      ...current.subagents,
+      maxParallel: 5,
+      profiles: []
+    })
+  })
+
+  it('completes a partial first subagent patch with safe defaults', () => {
+    const next = mergeKunRuntimeSettings(defaultKunRuntimeSettings(), {
+      subagents: { enabled: false }
+    })
+
+    expect(next.subagents).toEqual({ enabled: false, profiles: [] })
+    expect(normalizeAppSettings({
+      ...settings(),
+      agents: { kun: next }
+    }).agents.kun.subagents).toEqual({ enabled: false, profiles: [] })
+  })
+
   it('deep-merges token economy settings and keeps the legacy switch synced', () => {
     const current = defaultKunRuntimeSettings()
     const next = mergeKunRuntimeSettings(current, {

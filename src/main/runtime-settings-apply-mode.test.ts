@@ -51,7 +51,7 @@ describe('runtimeSettingsApplyMode', () => {
     expect(runtimeSettingsApplyMode(prev, next)).toBe('none')
   })
 
-  it('hot-applies model, provider, approval, media, MCP, and memory changes', () => {
+  it('hot-applies model, provider, approval, media, MCP, memory, and subagent changes', () => {
     const prev = settings()
     const withModel = {
       ...prev,
@@ -102,6 +102,26 @@ describe('runtimeSettingsApplyMode', () => {
       ...prev,
       agents: { kun: { ...prev.agents.kun, memoryEnabled: true } }
     }
+    const withSubagents = {
+      ...prev,
+      agents: {
+        kun: {
+          ...prev.agents.kun,
+          subagents: {
+            enabled: true,
+            maxParallel: 5,
+            maxChildRuns: 20,
+            profiles: [{
+              id: 'researcher',
+              enabled: true,
+              name: 'Researcher',
+              mode: 'subagent' as const,
+              toolPolicy: 'readOnly' as const
+            }]
+          }
+        }
+      }
+    }
 
     expect(runtimeSettingsApplyMode(prev, withModel)).toBe('hot')
     expect(runtimeSettingsApplyMode(prev, withProviderKey)).toBe('hot')
@@ -110,6 +130,7 @@ describe('runtimeSettingsApplyMode', () => {
     expect(runtimeSettingsApplyMode(prev, withImageResolution)).toBe('hot')
     expect(runtimeSettingsApplyMode(prev, withMcp)).toBe('hot')
     expect(runtimeSettingsApplyMode(prev, withMemory)).toBe('hot')
+    expect(runtimeSettingsApplyMode(prev, withSubagents)).toBe('hot')
   })
 
   it('requires restart for process-level runtime changes', () => {

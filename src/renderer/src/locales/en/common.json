@@ -2720,7 +2720,7 @@
     "permScopeAll": "All",
     "permScopeCustom": "Custom",
     "permScopeHint": "Pick the capabilities this agent may use — never exceeds the main agent.",
-    "permScopeReadOnlyNote": "Investigation only: read / grep / find / ls. No MCP or skills.",
+    "permScopeReadOnlyNote": "Investigation only: read / grep / find / ls / repo_map. No MCP or skills.",
     "permScopeAllNote": "Inherits every capability the main agent has.",
     "permSearch": "Search tools / MCP / skills…",
     "permSecTools": "Built-in tools",

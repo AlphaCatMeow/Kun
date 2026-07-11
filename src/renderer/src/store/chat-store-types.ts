@@ -101,6 +101,7 @@ export type SettingsRouteSection =
   | 'mediaGeneration'
   | 'speechToText'
   | 'agents'
+  | 'subagents'
   | 'archives'
   | 'permissions'
   | 'skill'
@@ -110,7 +111,7 @@ export type SettingsRouteSection =
   | 'claw'
   | 'updates'
   | 'terminal'
-export type AppRoute = 'chat' | 'write' | 'design' | 'settings' | 'plugins' | 'claw' | 'schedule' | 'workflow'
+export type AppRoute = 'chat' | 'write' | 'design' | 'settings' | 'plugins' | 'extensions' | 'claw' | 'schedule' | 'workflow'
 export type PluginHostRoute = 'chat' | 'claw'
 
 /**

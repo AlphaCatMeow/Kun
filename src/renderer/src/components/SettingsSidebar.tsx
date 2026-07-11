@@ -1,7 +1,7 @@
 import type { Dispatch, ReactElement, SetStateAction } from 'react'
-import { Archive, AudioLines, Bot, BrainCircuit, GitBranch, Bug, ChevronLeft, Globe, Keyboard, Mic, Palette, PencilLine, RefreshCw, ServerCog, Settings, ShieldCheck, Smartphone, Sparkles, TerminalSquare } from 'lucide-react'
+import { Archive, AudioLines, Bot, BrainCircuit, GitBranch, Bug, ChevronLeft, Globe, Keyboard, Mic, Palette, PencilLine, RefreshCw, ServerCog, Settings, ShieldCheck, Smartphone, Sparkles, TerminalSquare, UsersRound } from 'lucide-react'
 
-type SettingsCategory = 'general' | 'providers' | 'write' | 'design' | 'mediaGeneration' | 'speechToText' | 'agents' | 'archives' | 'permissions' | 'worktree' | 'memory' | 'shortcuts' | 'easterEgg' | 'claw' | 'updates' | 'debug' | 'terminal'
+type SettingsCategory = 'general' | 'providers' | 'write' | 'design' | 'mediaGeneration' | 'speechToText' | 'agents' | 'subagents' | 'archives' | 'permissions' | 'worktree' | 'memory' | 'shortcuts' | 'easterEgg' | 'claw' | 'updates' | 'debug' | 'terminal'
 
 export function SettingsSidebar({
   category,
@@ -98,6 +98,15 @@ export function SettingsSidebar({
         >
           <Bot className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
           {t('agents')}
+        </button>
+        <button
+          type="button"
+          data-cursor-spotlight-target
+          className={catCls('subagents')}
+          onClick={() => setCategory('subagents')}
+        >
+          <UsersRound className="h-4 w-4 shrink-0 opacity-70" strokeWidth={1.75} />
+          {t('subagents')}
         </button>
         <button
           type="button"

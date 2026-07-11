@@ -498,6 +498,11 @@ export function mergeKunRuntimeSettings(
   // whitespace strings are dropped so the field is omitted entirely.
   const nextRoleModelSlots = mergeOptionalModelSlot(current, patch)
   const nextRoleReasoningSlots = mergeOptionalReasoningSlot(current, patch)
+  const nextSubagents = mergeKunSubagentsSettings(current.subagents, patch?.subagents)
+  // Do not let the nested partial patch leak through the broad object spread;
+  // `nextSubagents` below is the fully materialized authoritative value.
+  const { subagents: _subagentsPatch, ...flatPatch } = patch ?? {}
+  void _subagentsPatch
   // NOTE: approvalPolicy/sandboxMode are merged through verbatim from the patch.
   // The unified 6-mode UI selector already resolves a mode to its concrete
   // {approvalPolicy, sandboxMode} pair via kunToolPermissionModeSettings before
@@ -508,7 +513,7 @@ export function mergeKunRuntimeSettings(
   // 'external-sandbox' sandbox to 'danger-full-access' — on every settings merge.
   const merged: KunRuntimeSettingsV1 = {
     ...current,
-    ...(patch ?? {}),
+    ...flatPatch,
     port: nextPort,
     tokenEconomyMode: nextTokenEconomy.enabled,
     tokenEconomy: nextTokenEconomy,
@@ -528,11 +533,7 @@ export function mergeKunRuntimeSettings(
     instructions: nextInstructions,
     computerUse: nextComputerUse,
     quality: nextQuality,
-    ...(patch?.subagents !== undefined
-      ? { subagents: patch.subagents }
-      : current.subagents !== undefined
-        ? { subagents: current.subagents }
-        : {})
+    ...(nextSubagents !== undefined ? { subagents: nextSubagents } : {})
   }
   // Optional model slots are authoritative from mergeOptionalModelSlot: strip any
   // verbatim copies leaked by the spreads above, then re-apply only the non-empty
@@ -542,15 +543,36 @@ export function mergeKunRuntimeSettings(
   return { ...merged, ...nextRoleModelSlots, ...nextRoleReasoningSlots }
 }
 
+function mergeKunSubagentsSettings(
+  current: KunRuntimeSettingsV1['subagents'],
+  patch: KunRuntimeSettingsPatchV1['subagents']
+): KunRuntimeSettingsV1['subagents'] {
+  if (patch === undefined) return current
+  return {
+    ...(current ?? { enabled: true, profiles: [] }),
+    ...patch,
+    enabled: patch.enabled ?? current?.enabled ?? true,
+    // A roster diff is an intentional whole-array replacement (including []
+    // for deleting every custom profile). Omitting it keeps the current roster.
+    profiles: patch.profiles !== undefined
+      ? [...patch.profiles]
+      : [...(current?.profiles ?? [])]
+  }
+}
+
 const OPTIONAL_MODEL_SLOT_KEYS = [
   'smallModel',
   'smallModelProviderId',
+  'smallModelAccountId',
   'titleModel',
   'titleProviderId',
+  'titleAccountId',
   'summaryModel',
   'summaryProviderId',
+  'summaryAccountId',
   'codeReviewModel',
-  'codeReviewProviderId'
+  'codeReviewProviderId',
+  'codeReviewAccountId'
 ] as const
 
 type OptionalModelSlotKey = (typeof OPTIONAL_MODEL_SLOT_KEYS)[number]

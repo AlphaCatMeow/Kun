@@ -14,6 +14,7 @@ import {
   resolveWriteInlineCompletionBaseUrl,
   resolveWriteInlineCompletionModel,
   type AppSettingsV1,
+  type KunRuntimeSettingsPatchV1,
 } from '@shared/app-settings'
 import { rendererRuntimeClient } from '../agent/runtime-client'
 import { getProvider } from '../agent/registry'
@@ -77,6 +78,9 @@ const SpeechToTextSettingsSection = lazy(() =>
 const AgentsSettingsSection = lazy(() =>
   import('./settings-section-agents').then((module) => ({ default: module.AgentsSettingsSection }))
 )
+const SubagentsSettingsSection = lazy(() =>
+  import('./settings-section-subagents').then((module) => ({ default: module.SubagentsSettingsSection }))
+)
 const ArchivedThreadsSettingsSection = lazy(() =>
   import('./settings-section-archives').then((module) => ({ default: module.ArchivedThreadsSettingsSection }))
 )
@@ -127,7 +131,7 @@ function SettingsSectionFallback(): ReactElement {
   )
 }
 
-type SettingsCategory = 'general' | 'providers' | 'write' | 'design' | 'mediaGeneration' | 'speechToText' | 'agents' | 'archives' | 'permissions' | 'worktree' | 'memory' | 'shortcuts' | 'easterEgg' | 'claw' | 'updates' | 'debug' | 'terminal'
+type SettingsCategory = 'general' | 'providers' | 'write' | 'design' | 'mediaGeneration' | 'speechToText' | 'agents' | 'subagents' | 'archives' | 'permissions' | 'worktree' | 'memory' | 'shortcuts' | 'easterEgg' | 'claw' | 'updates' | 'debug' | 'terminal'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type SettingsPatch = AppSettingsPatch
 type InlineNotice = {
@@ -371,6 +375,10 @@ export function SettingsView(): ReactElement {
       setCategory('agents')
       return
     }
+    if (settingsSection === 'subagents') {
+      setCategory('subagents')
+      return
+    }
     if (settingsSection === 'archives') {
       setCategory('archives')
       return
@@ -408,6 +416,7 @@ export function SettingsView(): ReactElement {
       settingsSection === 'imageGeneration' ||
       settingsSection === 'mediaGeneration' ||
       settingsSection === 'speechToText' ||
+      settingsSection === 'subagents' ||
       settingsSection === 'archives' ||
       settingsSection === 'claw' ||
       settingsSection === 'shortcuts' ||
@@ -420,7 +429,7 @@ export function SettingsView(): ReactElement {
     }
     if (!agentsSectionReady) return
     const refs: Record<
-      Exclude<SettingsRouteSection, 'general' | 'providers' | 'write' | 'design' | 'imageGeneration' | 'mediaGeneration' | 'speechToText' | 'archives' | 'claw' | 'shortcuts' | 'easterEgg' | 'updates' | 'terminal'>,
+      Exclude<SettingsRouteSection, 'general' | 'providers' | 'write' | 'design' | 'imageGeneration' | 'mediaGeneration' | 'speechToText' | 'subagents' | 'archives' | 'claw' | 'shortcuts' | 'easterEgg' | 'updates' | 'terminal'>,
       HTMLDivElement | null
     > = {
       agents: agentsSectionRef.current,
@@ -923,7 +932,7 @@ export function SettingsView(): ReactElement {
     update({ provider: patch })
   }
 
-  const updateKun = (patch: Partial<AppSettingsV1['agents']['kun']>): void => {
+  const updateKun = (patch: KunRuntimeSettingsPatchV1): void => {
     update({ agents: kunSettingsPatch(patch) })
   }
 
@@ -1215,6 +1224,7 @@ export function SettingsView(): ReactElement {
             {category === 'agents' ? (
               <LoadedAgentsSettingsSection ctx={settingsSectionContext} onReady={markAgentsSectionReady} />
             ) : null}
+            {category === 'subagents' ? <SubagentsSettingsSection ctx={settingsSectionContext} /> : null}
             {category === 'archives' ? <ArchivedThreadsSettingsSection ctx={settingsSectionContext} /> : null}
             {category === 'worktree' ? <WorktreeSettingsSection ctx={settingsSectionContext} /> : null}
             {category === 'memory' ? <MemorySettingsSection ctx={settingsSectionContext} /> : null}

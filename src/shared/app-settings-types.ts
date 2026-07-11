@@ -322,6 +322,17 @@ export type KunSubagentsSettingsV1 = {
   profiles: KunSubagentProfileV1[]
 }
 
+/**
+ * Partial settings patch for the subagent roster. Scalar fields merge with the
+ * current settings, while an explicitly supplied `profiles` array replaces the
+ * roster as a whole (so deleting a profile can be represented unambiguously).
+ */
+export type KunSubagentsSettingsPatchV1 = Partial<
+  Omit<KunSubagentsSettingsV1, 'profiles'>
+> & {
+  profiles?: KunSubagentProfileV1[]
+}
+
 export type KunRuntimeSettingsV1 = {
   binaryPath: string
   port: number
@@ -385,18 +396,23 @@ export type KunRuntimeSettingsV1 = {
   smallModel?: string
   /** Provider id paired with smallModel for per-provider routing. */
   smallModelProviderId?: string
+  /** Opaque account id paired with smallModelProviderId. */
+  smallModelAccountId?: string
   /** Optional model override for thread title generation. Empty = smallModel || main model. */
   titleModel?: string
   /** Provider id paired with titleModel. */
   titleProviderId?: string
+  titleAccountId?: string
   /** Optional model override for whole-session summary generation. Empty = smallModel || main model. */
   summaryModel?: string
   /** Provider id paired with summaryModel. */
   summaryProviderId?: string
+  summaryAccountId?: string
   /** Optional model override for the code-review subagent. Empty = smallModel || main model. */
   codeReviewModel?: string
   /** Provider id paired with codeReviewModel. */
   codeReviewProviderId?: string
+  codeReviewAccountId?: string
   /** Reasoning depth for thread-title generation. Default 'off'. */
   titleReasoningEffort?: ModelReasoningEffort
   /** Reasoning depth for whole-session summary generation. Default 'off'. */
@@ -675,7 +691,7 @@ export type KunTokenEconomySettingsPatchV1 = Partial<
 export type KunRuntimeSettingsPatchV1 = Partial<
   Omit<
     KunRuntimeSettingsV1,
-    'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'toolOutputLimits' | 'imageGeneration' | 'speechToText' | 'textToSpeech' | 'promptOptimization' | 'musicGeneration' | 'videoGeneration' | 'instructions' | 'computerUse' | 'quality' | 'modelProfiles'
+    'mcpSearch' | 'storage' | 'contextCompaction' | 'runtimeTuning' | 'tokenEconomy' | 'toolOutputLimits' | 'imageGeneration' | 'speechToText' | 'textToSpeech' | 'promptOptimization' | 'musicGeneration' | 'videoGeneration' | 'instructions' | 'computerUse' | 'quality' | 'modelProfiles' | 'subagents'
   >
 > & {
   mcpSearch?: Partial<KunMcpSearchSettingsV1>
@@ -694,6 +710,7 @@ export type KunRuntimeSettingsPatchV1 = Partial<
   computerUse?: Partial<KunComputerUseSettingsV1>
   quality?: Partial<KunDesignQualitySettingsV1>
   modelProfiles?: Record<string, ModelProviderModelProfilePatchV1 | null>
+  subagents?: KunSubagentsSettingsPatchV1
 }
 
 export type KunSettingsEnvelopePatchV1 = {

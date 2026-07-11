@@ -1634,4 +1634,38 @@ describe('subagentProfilesForRuntime', () => {
     })
     expect(config.profiles.custom.name).toBe('我的代理')
   })
+
+  it('preserves legacy disabled builtin overrides while dropping disabled custom profiles', async () => {
+    const module = await import('./kun-process')
+    const config = module.subagentProfilesForRuntime({
+      enabled: true,
+      profiles: [
+        {
+          id: 'general',
+          enabled: false,
+          name: '',
+          mode: 'subagent',
+          toolPolicy: 'readOnly',
+          model: 'review-model',
+          providerId: 'provider-a',
+          blockedSkills: ['unsafe-skill']
+        },
+        {
+          id: 'custom-disabled',
+          enabled: false,
+          name: 'Disabled custom',
+          mode: 'subagent',
+          toolPolicy: 'readOnly'
+        }
+      ]
+    })
+
+    expect(config.profiles.general).toMatchObject({
+      model: 'review-model',
+      providerId: 'provider-a',
+      toolPolicy: 'readOnly',
+      blockedSkills: ['unsafe-skill']
+    })
+    expect(config.profiles['custom-disabled']).toBeUndefined()
+  })
 })
