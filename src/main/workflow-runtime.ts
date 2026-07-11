@@ -71,6 +71,17 @@ type NodeOutcome = {
   threadId?: string
 }
 
+type NodeExecutionContext = {
+  payload: WorkflowPayload
+  settings: AppSettingsV1
+  inputs: WorkflowPayload[]
+  depth: number
+  runWorkspace: string
+  scope: InterpScope
+  runVars: Record<string, unknown>
+  runRef?: { workflowId: string; runId: string }
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
@@ -1447,48 +1458,88 @@ export class WorkflowRuntime {
     runVars: Record<string, unknown> = {},
     runRef?: { workflowId: string; runId: string }
   ): Promise<NodeOutcome> {
+    const context: NodeExecutionContext = {
+      payload,
+      settings,
+      inputs,
+      depth,
+      runWorkspace,
+      scope,
+      runVars,
+      runRef
+    }
     return this.nodeExecutors.execute(node, {
-      executeAdapter: (registeredNode) => this.executeNodeAdapter(
-        registeredNode,
-        payload,
-        settings,
-        inputs,
-        depth,
-        runWorkspace,
-        scope,
-        runVars,
-        runRef
-      )
+      executeCore: (registeredNode) => this.executeCoreNode(registeredNode, context),
+      executeAi: (registeredNode) => this.executeAiNode(registeredNode, context),
+      executeImage: (registeredNode) => this.executeImageNode(registeredNode, context),
+      executeCode: (registeredNode) => this.executeCodeNode(registeredNode, context),
+      executeNested: (registeredNode) => this.executeNestedNode(registeredNode, context),
+      executeHttp: (registeredNode) => this.executeHttpNode(registeredNode, context),
+      executeApproval: (registeredNode) => this.executeApprovalNode(registeredNode, context),
+      executeCustom: (registeredNode) => this.executeCustomNode(registeredNode, context)
     })
   }
 
-  private async executeNodeAdapter(
+  private async executeCoreNode(
     node: WorkflowNodeV1,
-    payload: WorkflowPayload,
-    settings: AppSettingsV1,
-    inputs: WorkflowPayload[],
-    depth: number,
-    runWorkspace: string,
-    scope: InterpScope,
-    runVars: Record<string, unknown>,
-    runRef?: { workflowId: string; runId: string }
+    context: NodeExecutionContext
   ): Promise<NodeOutcome> {
-    if (node.type === 'ai-agent' || node.type === 'parameter-extractor' || node.type === 'question-classifier') {
-      return executeAiWorkflowNode({ node, payload, settings, deps: this.deps, runWorkspace, scope })
+    if (!isCoreWorkflowNode(node)) {
+      throw new Error(`Core workflow node adapter received unsupported kind: ${node.type}`)
     }
-    if (node.type === 'generate-image') {
-      return executeImageWorkflowNode({ node, payload, settings, runWorkspace, scope })
+    const coreOutcome = await executeCoreWorkflowNode({
+      node,
+      payload: context.payload,
+      inputs: context.inputs,
+      scope: context.scope,
+      runVars: context.runVars,
+      sleep
+    })
+    if (coreOutcome) return coreOutcome
+    throw new Error(`Core workflow node adapter returned no outcome: ${node.type}`)
+  }
+
+  private executeAiNode(node: WorkflowNodeV1, context: NodeExecutionContext): Promise<NodeOutcome> {
+    if (node.type !== 'ai-agent' && node.type !== 'parameter-extractor' && node.type !== 'question-classifier') {
+      throw new Error(`AI workflow node adapter received unsupported kind: ${node.type}`)
     }
-    if (isCoreWorkflowNode(node)) {
-      const coreOutcome = await executeCoreWorkflowNode({ node, payload, inputs, scope, runVars, sleep })
-      if (coreOutcome) return coreOutcome
-      throw new Error(`Core workflow node adapter returned no outcome: ${node.type}`)
+    return executeAiWorkflowNode({
+      node,
+      payload: context.payload,
+      settings: context.settings,
+      deps: this.deps,
+      runWorkspace: context.runWorkspace,
+      scope: context.scope
+    })
+  }
+
+  private executeImageNode(node: WorkflowNodeV1, context: NodeExecutionContext): Promise<NodeOutcome> {
+    if (node.type !== 'generate-image') {
+      throw new Error(`Image workflow node adapter received unsupported kind: ${node.type}`)
     }
+    return executeImageWorkflowNode({
+      node,
+      payload: context.payload,
+      settings: context.settings,
+      runWorkspace: context.runWorkspace,
+      scope: context.scope
+    })
+  }
+
+  private executeCodeNode(node: WorkflowNodeV1, context: NodeExecutionContext): Promise<NodeOutcome> {
+    if (node.type !== 'code') {
+      throw new Error(`Code workflow node adapter received unsupported kind: ${node.type}`)
+    }
+    return Promise.resolve(
+      node.config.language === 'python' || node.config.language === 'bash'
+        ? runCommandNode(node.config.language, node.config.code, context.payload)
+        : runCodeNode(node.config.code, context.payload)
+    )
+  }
+
+  private async executeNestedNode(node: WorkflowNodeV1, context: NodeExecutionContext): Promise<NodeOutcome> {
+    const { depth, payload, scope, settings } = context
     switch (node.type) {
-      case 'code':
-        return node.config.language === 'python' || node.config.language === 'bash'
-          ? runCommandNode(node.config.language, node.config.code, payload)
-          : runCodeNode(node.config.code, payload)
       case 'subworkflow': {
         if (depth >= MAX_SUBWORKFLOW_DEPTH) throw new Error('Sub-workflow nesting is too deep.')
         const target = settings.workflow.workflows.find((workflow) => workflow.id === node.config.workflowId)
@@ -1590,51 +1641,67 @@ export class WorkflowRuntime {
           message: `looped ${iterations}${done ? ' (done)' : ' (max)'}`
         }
       }
-      case 'http-request':
-        return executeHttpWorkflowNode(node.config, payload, scope)
-      case 'human-approval': {
-        // Pause the run until a decision arrives. Routes to the approved/rejected branch.
-        // Note: the pending state is in-memory — an app restart mid-pause loses the run.
-        if (!runRef) {
-          // Single-node test / validation: cannot pause, so auto-approve.
-          return { payload, message: 'approved (test)', branch: 'approved' }
-        }
-        const token = randomUUID()
-        // Redact secrets: the instruction is surfaced via status() to the approval UI.
-        const approvalSecrets = collectSecretValues(settings)
-        const entry: WorkflowPendingApprovalV1 = {
-          token,
-          workflowId: runRef.workflowId,
-          runId: runRef.runId,
-          nodeId: node.id,
-          nodeName: node.name,
-          title: redactSecrets(approvalSecrets, node.config.title.trim() || node.name.trim() || 'Approval required'),
-          instruction: redactSecrets(approvalSecrets, interpolate(node.config.instruction, payload, scope)),
-          createdAt: new Date().toISOString()
-        }
-        const decision = await this.runCoordinator.awaitApproval(
-          entry,
-          node.config.timeoutMs,
-          node.config.onTimeout
-        )
-        if (decision === 'rejected') return { payload, message: 'rejected', branch: 'rejected' }
-        const approvedJson =
-          payload.json && typeof payload.json === 'object' && !Array.isArray(payload.json)
-            ? { ...(payload.json as Record<string, unknown>), _approved: true }
-            : payload.json
-        return { payload: { json: approvedJson, text: payload.text }, message: 'approved', branch: 'approved' }
-      }
-      case 'custom': {
-        const module = settings.workflow.modules.find((item) => item.id === node.config.moduleId)
-        if (!module) throw new Error('Custom module not found — it may have been deleted.')
-        const fields = coerceModuleFields(module, node.config.values)
-        return module.language === 'python' || module.language === 'bash'
-          ? runCommandNode(module.language, module.code, payload, fields)
-          : runCodeNode(module.code, payload, fields)
-      }
       default:
-        return { payload, message: '' }
+        throw new Error(`Nested workflow node adapter received unsupported kind: ${node.type}`)
     }
+  }
+
+  private executeHttpNode(node: WorkflowNodeV1, context: NodeExecutionContext): Promise<NodeOutcome> {
+    if (node.type !== 'http-request') {
+      throw new Error(`HTTP workflow node adapter received unsupported kind: ${node.type}`)
+    }
+    return executeHttpWorkflowNode(node.config, context.payload, context.scope)
+  }
+
+  private async executeApprovalNode(node: WorkflowNodeV1, context: NodeExecutionContext): Promise<NodeOutcome> {
+    if (node.type !== 'human-approval') {
+      throw new Error(`Approval workflow node adapter received unsupported kind: ${node.type}`)
+    }
+    const { payload, runRef, scope, settings } = context
+    // Pause the run until a decision arrives. Routes to the approved/rejected branch.
+    // Note: the pending state is in-memory — an app restart mid-pause loses the run.
+    if (!runRef) {
+      // Single-node test / validation: cannot pause, so auto-approve.
+      return { payload, message: 'approved (test)', branch: 'approved' }
+    }
+    const token = randomUUID()
+    // Redact secrets: the instruction is surfaced via status() to the approval UI.
+    const approvalSecrets = collectSecretValues(settings)
+    const entry: WorkflowPendingApprovalV1 = {
+      token,
+      workflowId: runRef.workflowId,
+      runId: runRef.runId,
+      nodeId: node.id,
+      nodeName: node.name,
+      title: redactSecrets(approvalSecrets, node.config.title.trim() || node.name.trim() || 'Approval required'),
+      instruction: redactSecrets(approvalSecrets, interpolate(node.config.instruction, payload, scope)),
+      createdAt: new Date().toISOString()
+    }
+    const decision = await this.runCoordinator.awaitApproval(
+      entry,
+      node.config.timeoutMs,
+      node.config.onTimeout
+    )
+    if (decision === 'rejected') return { payload, message: 'rejected', branch: 'rejected' }
+    const approvedJson =
+      payload.json && typeof payload.json === 'object' && !Array.isArray(payload.json)
+        ? { ...(payload.json as Record<string, unknown>), _approved: true }
+        : payload.json
+    return { payload: { json: approvedJson, text: payload.text }, message: 'approved', branch: 'approved' }
+  }
+
+  private executeCustomNode(node: WorkflowNodeV1, context: NodeExecutionContext): Promise<NodeOutcome> {
+    if (node.type !== 'custom') {
+      throw new Error(`Custom workflow node adapter received unsupported kind: ${node.type}`)
+    }
+    const module = context.settings.workflow.modules.find((item) => item.id === node.config.moduleId)
+    if (!module) throw new Error('Custom module not found — it may have been deleted.')
+    const fields = coerceModuleFields(module, node.config.values)
+    return Promise.resolve(
+      module.language === 'python' || module.language === 'bash'
+        ? runCommandNode(module.language, module.code, context.payload, fields)
+        : runCodeNode(module.code, context.payload, fields)
+    )
   }
 
   private syncPowerSaveBlocker(settings: AppSettingsV1): void {

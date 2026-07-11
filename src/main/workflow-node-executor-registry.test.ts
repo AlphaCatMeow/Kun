@@ -14,11 +14,40 @@ describe('workflow node executor registry', () => {
     expect(new Set(registry.registeredKinds())).toEqual(new Set(expected))
   })
 
-  it('dispatches through the registered family adapter', async () => {
+  it('dispatches through distinct registered family adapters', async () => {
     const registry = createWorkflowNodeExecutorRegistry<string>()
-    const node = { type: 'delay' } as WorkflowNodeV1
-    await expect(registry.execute(node, {
-      executeAdapter: async (candidate) => `ran:${candidate.type}`
-    })).resolves.toBe('ran:delay')
+    const calls: string[] = []
+    const context = {
+      executeCore: async (node: WorkflowNodeV1) => `core:${node.type}`,
+      executeAi: async (node: WorkflowNodeV1) => `ai:${node.type}`,
+      executeImage: async (node: WorkflowNodeV1) => `image:${node.type}`,
+      executeCode: async (node: WorkflowNodeV1) => `code:${node.type}`,
+      executeNested: async (node: WorkflowNodeV1) => `nested:${node.type}`,
+      executeHttp: async (node: WorkflowNodeV1) => `http:${node.type}`,
+      executeApproval: async (node: WorkflowNodeV1) => `approval:${node.type}`,
+      executeCustom: async (node: WorkflowNodeV1) => `custom:${node.type}`
+    }
+    for (const node of [
+      { type: 'delay' },
+      { type: 'ai-agent' },
+      { type: 'generate-image' },
+      { type: 'code' },
+      { type: 'loop' },
+      { type: 'http-request' },
+      { type: 'human-approval' },
+      { type: 'custom' }
+    ] as WorkflowNodeV1[]) {
+      calls.push(await registry.execute(node, context))
+    }
+    expect(calls).toEqual([
+      'core:delay',
+      'ai:ai-agent',
+      'image:generate-image',
+      'code:code',
+      'nested:loop',
+      'http:http-request',
+      'approval:human-approval',
+      'custom:custom'
+    ])
   })
 })

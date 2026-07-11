@@ -2,7 +2,14 @@ import type { WorkflowNodeV1 } from '../shared/app-settings'
 
 export type WorkflowNodeKind = WorkflowNodeV1['type']
 export type WorkflowNodeExecutorContext<TOutcome> = {
-  executeAdapter: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeCore: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeAi: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeImage: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeCode: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeNested: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeHttp: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeApproval: (node: WorkflowNodeV1) => Promise<TOutcome>
+  executeCustom: (node: WorkflowNodeV1) => Promise<TOutcome>
 }
 export type WorkflowNodeExecutor<TOutcome> = (
   node: WorkflowNodeV1,
@@ -37,20 +44,34 @@ export class WorkflowNodeExecutorRegistry<TOutcome> {
   }
 }
 
-const TRIGGER_KINDS = ['manual-trigger', 'schedule-trigger', 'webhook-trigger'] as const
-const AI_KINDS = ['ai-agent', 'generate-image', 'parameter-extractor', 'question-classifier'] as const
-const FLOW_KINDS = ['condition', 'switch', 'filter', 'merge', 'subworkflow', 'loop', 'human-approval'] as const
-const TRANSFORM_KINDS = ['set-fields', 'sort', 'limit', 'aggregate', 'template', 'json', 'output', 'code'] as const
-const INTEGRATION_KINDS = ['http-request', 'delay', 'custom'] as const
+const CORE_KINDS = [
+  'manual-trigger', 'schedule-trigger', 'webhook-trigger', 'condition', 'switch', 'filter',
+  'merge', 'set-fields', 'sort', 'limit', 'aggregate', 'template', 'json', 'output', 'delay'
+] as const
+const AI_KINDS = ['ai-agent', 'parameter-extractor', 'question-classifier'] as const
+const IMAGE_KINDS = ['generate-image'] as const
+const CODE_KINDS = ['code'] as const
+const NESTED_KINDS = ['subworkflow', 'loop'] as const
+const HTTP_KINDS = ['http-request'] as const
+const APPROVAL_KINDS = ['human-approval'] as const
+const CUSTOM_KINDS = ['custom'] as const
 
-/** Registers explicit node-family adapters while the facade supplies I/O dependencies. */
+type ExecutorKey = keyof WorkflowNodeExecutorContext<unknown>
+
+function familyExecutor<TOutcome>(key: ExecutorKey): WorkflowNodeExecutor<TOutcome> {
+  return (node, context) => context[key](node)
+}
+
+/** Registers every persisted node kind with exactly one concrete family owner. */
 export function createWorkflowNodeExecutorRegistry<TOutcome>(): WorkflowNodeExecutorRegistry<TOutcome> {
   const registry = new WorkflowNodeExecutorRegistry<TOutcome>()
-  const adapter: WorkflowNodeExecutor<TOutcome> = (node, context) => context.executeAdapter(node)
   return registry
-    .registerFamily(TRIGGER_KINDS, adapter)
-    .registerFamily(AI_KINDS, adapter)
-    .registerFamily(FLOW_KINDS, adapter)
-    .registerFamily(TRANSFORM_KINDS, adapter)
-    .registerFamily(INTEGRATION_KINDS, adapter)
+    .registerFamily(CORE_KINDS, familyExecutor('executeCore'))
+    .registerFamily(AI_KINDS, familyExecutor('executeAi'))
+    .registerFamily(IMAGE_KINDS, familyExecutor('executeImage'))
+    .registerFamily(CODE_KINDS, familyExecutor('executeCode'))
+    .registerFamily(NESTED_KINDS, familyExecutor('executeNested'))
+    .registerFamily(HTTP_KINDS, familyExecutor('executeHttp'))
+    .registerFamily(APPROVAL_KINDS, familyExecutor('executeApproval'))
+    .registerFamily(CUSTOM_KINDS, familyExecutor('executeCustom'))
 }
