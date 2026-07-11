@@ -23,6 +23,7 @@ import {
 } from './design-context'
 import { useCanvasViewportStore } from './canvas/canvas-viewport-store'
 import { serializeCanvasDocument } from './canvas/canvas-persistence'
+import { writeDesignWorkspaceFile } from './design-persistence-coordinator'
 import { createLinkedHtmlScreen } from './canvas/screen-lifecycle'
 import {
   createDesignArtifactId,
@@ -577,19 +578,12 @@ export async function ensureDesignBoardArtifact(
     versions: [{ id: `${artifactId}-v1`, relativePath, createdAt, summary: '' }]
   }
 
-  if (typeof window.kunGui?.writeWorkspaceFile === 'function') {
-    const write = await window.kunGui
-      .writeWorkspaceFile({
-        path: relativePath,
-        workspaceRoot: trimmedRoot,
-        content: serializeCanvasDocument(createEmptyDocument())
-      })
-      .catch((error: unknown) => ({
-        ok: false as const,
-        message: error instanceof Error ? error.message : String(error)
-      }))
-    if (!write.ok) useDesignWorkspaceStore.getState().setFileError(write.message)
-  }
+  const write = await writeDesignWorkspaceFile({
+    path: relativePath,
+    workspaceRoot: trimmedRoot,
+    content: serializeCanvasDocument(createEmptyDocument())
+  })
+  if (!write.ok) return null
 
   useDesignWorkspaceStore.getState().upsertArtifact(artifact)
   return artifact

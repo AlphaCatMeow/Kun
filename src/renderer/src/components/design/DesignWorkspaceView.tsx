@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useDesignWorkspaceStore } from '../../design/design-workspace-store'
+import { flushDesignWorkspacePersistence } from '../../design/design-persistence-flush'
 import type { DesignHtmlElementContext } from '../../design/design-composer-context'
 import type { DesignArtifact } from '../../design/design-types'
 import type { DesignRuntimeQualityPayload } from '../../design/design-html-quality'
@@ -50,6 +51,10 @@ export function DesignWorkspaceView({
 
   useEffect(() => {
     void loadDesignSettings()
+    return () => {
+      const workspaceRoot = useDesignWorkspaceStore.getState().workspaceRoot
+      if (workspaceRoot) void flushDesignWorkspacePersistence(workspaceRoot)
+    }
   }, [loadDesignSettings])
 
   return (

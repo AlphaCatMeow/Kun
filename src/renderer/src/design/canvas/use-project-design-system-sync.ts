@@ -4,6 +4,7 @@ import { PROJECT_DESIGN_MD_PATH } from '../design-md/design-md-paths'
 import { mapProjectDesignMdToNative, removeProjectDesignMdNativeTokens, serializeNativeDesignSystemAsDesignMd } from '../design-md/design-md-native-mapping'
 import { useDesignSystemStore } from './design-system-store'
 import { useProjectDesignSystemStore } from './project-design-system-store'
+import { writeDesignWorkspaceFile } from '../design-persistence-coordinator'
 
 const WATCH_RECOVERY_MS = 1_500
 const saveQueues = new Map<string, { key: string; promise: Promise<boolean> }>()
@@ -33,9 +34,12 @@ async function saveProjectDesignMdNow(workspaceRoot: string, content: string, ex
     return false
   }
   useProjectDesignSystemStore.getState().setSaving()
-  const written = await api.writeWorkspaceFile({ path: PROJECT_DESIGN_MD_PATH, workspaceRoot, content }).catch(() => null)
+  const written = await writeDesignWorkspaceFile(
+    { path: PROJECT_DESIGN_MD_PATH, workspaceRoot, content },
+    api
+  )
   if (useProjectDesignSystemStore.getState().workspaceRoot !== workspaceRoot) return false
-  if (!written?.ok) {
+  if (!written.ok) {
     useProjectDesignSystemStore.getState().setDraft(content)
     return false
   }

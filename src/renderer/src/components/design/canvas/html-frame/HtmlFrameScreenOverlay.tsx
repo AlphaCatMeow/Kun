@@ -9,6 +9,7 @@ import {
   type DesignRuntimeQualityPayload
 } from '../../../../design/design-html-quality'
 import { replaceHtmlElementTextInSource } from '../../../../design/design-html-element-edit'
+import { writeDesignWorkspaceFile } from '../../../../design/design-persistence-coordinator'
 import { useDesignHtmlPreview } from '../../DesignHtmlPreviewHost'
 import { HtmlFrameAiCursorOverlay } from './HtmlFrameAiCursorOverlay'
 import { HtmlFrameChrome } from './HtmlFrameChrome'
@@ -239,7 +240,7 @@ function ScreenOverlayInner({
 
       if (replaced.content !== read.content) {
         setArtifactPreviewStatus(artifact.id, 'pending')
-        const write = await window.kunGui.writeWorkspaceFile({
+        const write = await writeDesignWorkspaceFile({
           path: artifact.relativePath,
           workspaceRoot,
           content: replaced.content

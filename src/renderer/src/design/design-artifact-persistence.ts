@@ -8,6 +8,10 @@
  */
 import type { WorkspaceEntry } from '@shared/workspace-file'
 import {
+  deleteDesignWorkspaceEntry,
+  writeDesignWorkspaceFile
+} from './design-persistence-coordinator'
+import {
   defaultDesignArtifactNode,
   type DesignArtifact,
   type DesignDirection,
@@ -347,19 +351,17 @@ export function reconstructArtifact(
 
 /** Fire-and-forget write of an artifact's meta.json sidecar (alongside its files). */
 export function persistArtifactMeta(workspaceRoot: string, artifact: DesignArtifact): void {
-  if (!workspaceRoot || typeof window.kunGui?.writeWorkspaceFile !== 'function') return
-  void window.kunGui
-    .writeWorkspaceFile({
+  if (!workspaceRoot) return
+  void writeDesignWorkspaceFile({
       path: artifactMetaPathOf(artifact.relativePath),
       workspaceRoot,
       content: serializeArtifactMeta(artifact)
     })
-    .catch(() => undefined)
 }
 
 /** Fire-and-forget delete of an artifact's whole on-disk dir (keeps disk in sync with the list). */
 export function deleteArtifactDir(workspaceRoot: string, relativePath: string): void {
-  if (!workspaceRoot || typeof window.kunGui?.deleteWorkspaceEntry !== 'function') return
+  if (!workspaceRoot) return
   const dir = artifactDirOf(relativePath)
   const dirId = dir.slice(dir.lastIndexOf('/') + 1)
   const safeDir = safeArtifactDirectory(dir, dirId)
@@ -369,7 +371,5 @@ export function deleteArtifactDir(workspaceRoot: string, relativePath: string): 
     artifactFileInDirectory(relativePath, safeDir, 'svg')
   )
   if (!safeDir || !validFile) return
-  void window.kunGui
-    .deleteWorkspaceEntry({ path: safeDir, workspaceRoot })
-    .catch(() => undefined)
+  void deleteDesignWorkspaceEntry({ path: safeDir, workspaceRoot })
 }

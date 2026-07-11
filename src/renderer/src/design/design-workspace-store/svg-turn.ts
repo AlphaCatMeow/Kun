@@ -21,6 +21,10 @@ import {
   assertSvgPrepareContext,
   type SvgPrepareContext
 } from './svg-turn-context'
+import {
+  deleteDesignWorkspaceEntry,
+  writeDesignWorkspaceFile
+} from '../design-persistence-coordinator'
 
 type SetDesignWorkspaceState = (
   partial:
@@ -112,18 +116,18 @@ function requireSvgFileApi() {
 
 async function persistMetaStrict(workspaceRoot: string, artifact: DesignArtifact): Promise<void> {
   const api = requireSvgFileApi()
-  const result = await api.writeWorkspaceFile({
+  const result = await writeDesignWorkspaceFile({
     path: artifactMetaPathOf(artifact.relativePath),
     workspaceRoot,
     content: serializeArtifactMeta(artifact)
-  })
+  }, api)
   if (!result.ok) throw new Error(`Could not persist SVG metadata: ${result.message}`)
 }
 
 async function deleteEntryBestEffort(workspaceRoot: string, path: string): Promise<void> {
   const api = typeof window !== 'undefined' ? window.kunGui : undefined
   if (typeof api?.deleteWorkspaceEntry !== 'function') return
-  await api.deleteWorkspaceEntry({ path, workspaceRoot }).catch(() => undefined)
+  await deleteDesignWorkspaceEntry({ path, workspaceRoot }, api)
 }
 
 async function restoreOrDeleteMetaBestEffort(
@@ -138,7 +142,7 @@ async function restoreOrDeleteMetaBestEffort(
   }
   const api = typeof window !== 'undefined' ? window.kunGui : undefined
   if (typeof api?.writeWorkspaceFile !== 'function') return
-  await api.writeWorkspaceFile({ path: metaPath, workspaceRoot, content: previousContent }).catch(() => undefined)
+  await writeDesignWorkspaceFile({ path: metaPath, workspaceRoot, content: previousContent }, api)
 }
 
 async function readExistingMeta(workspaceRoot: string, relativePath: string): Promise<string | null> {
@@ -633,9 +637,7 @@ export async function duplicateSvgArtifact(
   const sourceNotes = source.designMdPath ?? artifactDesignMdPathOf(source.relativePath)
   const notes = await window.kunGui.readWorkspaceFile({ path: sourceNotes, workspaceRoot }).catch(() => null)
   if (notes?.ok && typeof window.kunGui.writeWorkspaceFile === 'function') {
-    await window.kunGui
-      .writeWorkspaceFile({ path: designMdPath, workspaceRoot, content: notes.content })
-      .catch(() => null)
+    await writeDesignWorkspaceFile({ path: designMdPath, workspaceRoot, content: notes.content })
   }
   if (!contextMatches()) {
     await rollbackCopy()

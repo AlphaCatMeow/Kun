@@ -12,6 +12,7 @@ import {
   type PrepareDesignPreviewFileResult
 } from '../design-preview-file'
 import type { ResolvedDesignTurnTarget } from './target'
+import { writeDesignWorkspaceFile } from '../design-persistence-coordinator'
 
 type DesignTurnSetupApi = {
   readWorkspaceFile?: (options: WorkspaceFileTarget) => Promise<WorkspaceFileReadResult>
@@ -32,7 +33,12 @@ export type PrepareDesignTurnFilesOptions = {
 }
 
 function currentSetupApi(api?: DesignTurnSetupApi): DesignTurnSetupApi | undefined {
-  return api ?? (typeof window !== 'undefined' ? window.kunGui : undefined)
+  if (api) return api
+  if (typeof window === 'undefined' || !window.kunGui) return undefined
+  return {
+    readWorkspaceFile: window.kunGui.readWorkspaceFile,
+    writeWorkspaceFile: (payload) => writeDesignWorkspaceFile(payload)
+  }
 }
 
 function selectedContextForNotes(target: ResolvedDesignTurnTarget) {

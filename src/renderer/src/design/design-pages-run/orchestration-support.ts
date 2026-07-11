@@ -27,6 +27,7 @@ import {
   type DesignPagePlanEntry
 } from "../design-pages"
 import { prepareDesignPreviewFile } from "../design-preview-file"
+import { writeDesignWorkspaceFile } from "../design-persistence-coordinator"
 import {
   buildDesignTurnPrompt,
   buildParallelDesignPagesPrompt,
@@ -173,8 +174,8 @@ export async function writeWorkspaceTextFile(
   if (typeof window === 'undefined' || typeof window.kunGui?.writeWorkspaceFile !== 'function') {
     return false
   }
-  const res = await window.kunGui.writeWorkspaceFile({ path, workspaceRoot, content }).catch(() => null)
-  return Boolean(res && res.ok)
+  const result = await writeDesignWorkspaceFile({ path, workspaceRoot, content })
+  return result.ok
 }
 
 /**
