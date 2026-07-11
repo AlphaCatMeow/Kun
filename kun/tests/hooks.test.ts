@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  hookMatcherCacheForTesting,
   hookMatchesTool,
+  MAX_HOOK_MATCHER_CACHE_ENTRIES,
   runObserverHooks,
   runPostToolUseHooks,
   runPreToolUseHooks,
@@ -53,6 +55,14 @@ describe('hookMatchesTool', () => {
     expect(hookMatchesTool({ toolNames: ['bash'], matcher: 'mcp__*' }, 'bash')).toBe(true)
     expect(hookMatchesTool({ toolNames: ['bash'], matcher: 'mcp__*' }, 'mcp__a')).toBe(true)
     expect(hookMatchesTool({ toolNames: ['bash'], matcher: 'mcp__*' }, 'read_file')).toBe(false)
+  })
+
+  it('bounds compiled matcher entries under changing hook configurations', () => {
+    hookMatcherCacheForTesting.clear()
+    for (let index = 0; index < MAX_HOOK_MATCHER_CACHE_ENTRIES + 32; index += 1) {
+      expect(hookMatchesTool({ matcher: `tool_${index}` }, `tool_${index}`)).toBe(true)
+    }
+    expect(hookMatcherCacheForTesting.size()).toBe(MAX_HOOK_MATCHER_CACHE_ENTRIES)
   })
 })
 

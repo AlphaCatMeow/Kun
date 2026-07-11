@@ -102,6 +102,7 @@ import {
   fallbackComposerProviderIdForSend,
   subscribeThreadEventsWithRecovery
 } from './chat-store-thread-action-helpers'
+import { GitCheckpointAvailabilityCache } from '../lib/git-checkpoint-availability'
 
 type SseAbortRef = { current: AbortController | null }
 
@@ -112,7 +113,7 @@ type StoreActionContext = {
 }
 
 let drainingQueuedMessages = false
-const checkpointGitUnavailableWorkspaces = new Set<string>()
+const checkpointGitAvailability = new GitCheckpointAvailabilityCache()
 
 export function createThreadActions(
   { set, get, sseAbortRef }: StoreActionContext
@@ -868,7 +869,7 @@ export function createThreadActions(
       const checkpointWorkspaceKey = checkpointWorkspaceRoot.replaceAll('\\', '/').toLowerCase()
       if (
         checkpointWorkspaceRoot &&
-        !checkpointGitUnavailableWorkspaces.has(checkpointWorkspaceKey) &&
+        checkpointGitAvailability.canAttempt(checkpointWorkspaceKey) &&
         typeof window.kunGui.createGitCheckpoint === 'function'
       ) {
         const checkpoint = await window.kunGui.createGitCheckpoint({
@@ -883,7 +884,7 @@ export function createThreadActions(
           workspaceCheckpointId = checkpoint.checkpointId
         } else if (checkpoint.reason !== 'not_git_repo' && checkpoint.reason !== 'no_workspace') {
           if (checkpoint.reason === 'git_unavailable') {
-            checkpointGitUnavailableWorkspaces.add(checkpointWorkspaceKey)
+            checkpointGitAvailability.markUnavailable(checkpointWorkspaceKey)
           }
           void window.kunGui.logError(
             'git-checkpoint',
