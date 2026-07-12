@@ -147,9 +147,7 @@ describe('LocalToolHost approval policy', () => {
 
   it('normalizes structured multi-select user input questions', async () => {
     const host = new LocalToolHost({ tools: [userInputTool] })
-    const captured: {
-      value?: Parameters<NonNullable<ToolHostContext['awaitUserInput']>>[0]
-    } = {}
+    const captured: Parameters<NonNullable<ToolHostContext['awaitUserInput']>>[0][] = []
     const context = {
       threadId: 'thread_1',
       turnId: 'turn_1',
@@ -159,7 +157,7 @@ describe('LocalToolHost approval policy', () => {
       abortSignal: new AbortController().signal,
       awaitApproval: vi.fn(async () => 'allow' as const),
       awaitUserInput: vi.fn(async (input) => {
-        captured.value = input
+        captured.push(input)
         return { status: 'submitted' as const, answers: [] }
       })
     } satisfies ToolHostContext
@@ -184,7 +182,7 @@ describe('LocalToolHost approval policy', () => {
       context
     )
 
-    expect(captured.value?.questions).toEqual([
+    expect(captured[0]?.questions).toEqual([
       {
         header: 'Question 1',
         id: 'requirements',
